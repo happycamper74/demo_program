@@ -83,7 +83,7 @@ import type {
   SessionStatusResponse,
   SimulateCallResponse,
   StartDemoRequest,
-  StartDemoResponse,
+  StartedDemoResponse,
 } from '../types/api.js';
 import type { BusinessMarket } from '../types/api.js';
 import { mapDomainEventToPresentationEvents as mapToPresentation } from './presentation-event-mapper.js';
@@ -123,7 +123,7 @@ export interface StartDemoRequestContext {
 
 export interface StartedDemoOutcome {
   readonly kind: 'started';
-  readonly response: StartDemoResponse;
+  readonly response: StartedDemoResponse;
 }
 
 export interface WaitlistedOutcome {
@@ -408,7 +408,7 @@ export class DemoService {
       );
     }
 
-    const response: StartDemoResponse = {
+    const response: StartedDemoResponse = {
       status: 'started',
       prospect_id: prospect.prospectId,
       experience_session_id: updatedSession.experienceSessionId,

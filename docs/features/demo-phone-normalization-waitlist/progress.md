@@ -5,6 +5,6 @@
 - [x] T003 Request contract, BFF validation, prospect persistence
 - [x] T004 Waitlist persistence
 - [x] T005 Start-flow branching
-- [ ] T006 Discriminated API responses
+- [x] T006 Discriminated API responses
 - [ ] T007 Waitlist confirmation UX
 - [ ] T008 Contract updates and final regression

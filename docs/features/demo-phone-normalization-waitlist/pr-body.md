@@ -7,9 +7,9 @@ Implements country-aware phone normalization and unsupported-market waitlist for
 - [x] T001 Shared phone normalization
 - [x] T002 Qualification UI
 - [x] T003 Backend validation & prospect persistence
-- [ ] T004 Waitlist persistence
-- [ ] T005 Start-flow branching
-- [ ] T006 API responses
+- [x] T004 Waitlist persistence
+- [x] T005 Start-flow branching
+- [x] T006 API responses
 - [ ] T007 Waitlist confirmation UX
 - [ ] T008 Documentation & regression
 

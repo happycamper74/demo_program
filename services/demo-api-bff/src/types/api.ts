@@ -20,7 +20,7 @@ export interface StartDemoRequest {
   readonly client_context?: Record<string, unknown>;
 }
 
-export interface StartDemoResponse {
+export interface StartedDemoResponse {
   readonly status: 'started';
   readonly prospect_id: string;
   readonly experience_session_id: string;
@@ -42,6 +42,17 @@ export interface StartDemoResponse {
   };
   readonly simulate_call_available: boolean;
 }
+
+export interface WaitlistedResponse {
+  readonly status: 'waitlisted';
+  readonly country_name: string;
+  readonly message: string;
+}
+
+export type StartDemoResponse = StartedDemoResponse | WaitlistedResponse;
+
+export const WAITLIST_SUCCESS_MESSAGE =
+  "Thank you for your interest. We'll let you know when the demo is available in your market.";
 
 export interface SessionStatusResponse {
   readonly experience_session_id: string;

@@ -30,6 +30,7 @@ import { createHandleRequest } from '../src/http.js';
 import { createDemoApiDependencies } from '../src/infrastructure/dependencies.js';
 import { createPermissiveDemoStartGuard } from './test-security-helpers.js';
 import type { StartDemoRequest } from '../src/types/api.js';
+import { WAITLIST_SUCCESS_MESSAGE } from '../src/types/api.js';
 
 const plumbingDefinition: CreateExperienceDefinitionInput = {
   name: 'Plumbing Demo',
@@ -602,6 +603,145 @@ describe('demo-api-bff demo routes', () => {
     expect(booked.status).toBe('booked');
     expect(booked.confirmation.email_sent).toBe(true);
     expect(booked.confirmation.sms_sent).toBe(true);
+  });
+});
+
+describe('POST /start response mapping', () => {
+  let databasePath: string;
+  let handleRequest: ReturnType<typeof createHandleRequest>;
+
+  beforeEach(async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'demo-api-bff-mapping-'));
+    databasePath = join(tempDir, `${randomUUID()}.sqlite`);
+    await seedActiveDefinition(databasePath);
+    handleRequest = createHandleRequest(
+      createDemoApiDependencies({
+        databasePath,
+        signingSecret: 'demo-api-bff-test-secret',
+        demoStartGuard: createPermissiveDemoStartGuard(),
+      }),
+    );
+  });
+
+  it('returns 200 started response unchanged for NL submissions', async () => {
+    const request = createJsonRequest('POST', '/api/demo/v1/start', {
+      ...validStartRequest,
+      experience_definition_id: 'expdef_plumbing_demo_v1',
+    });
+    const response = createMockResponse();
+
+    await handleRequest(request, response);
+
+    expect(response.statusCode).toBe(200);
+    const body = JSON.parse(response.chunks.join(''));
+    expect(body.status).toBe('started');
+    expect(body.experience_session_id).toBeTypeOf('string');
+    expect(body.experience_token).toBeTypeOf('string');
+    expect(body.shared_demo_phone_number).toBe('+31201234567');
+    expect(body.prospect_id).toBeTypeOf('string');
+    expect(body.session_state).toBe('waiting_for_call');
+  });
+
+  it('returns 200 started response unchanged for US submissions', async () => {
+    const request = createJsonRequest('POST', '/api/demo/v1/start', {
+      ...validStartRequest,
+      business_market: 'US',
+      phone_number: '(415) 555-2671',
+      experience_definition_id: 'expdef_plumbing_demo_v1',
+    });
+    const response = createMockResponse();
+
+    await handleRequest(request, response);
+
+    expect(response.statusCode).toBe(200);
+    const body = JSON.parse(response.chunks.join(''));
+    expect(body.status).toBe('started');
+    expect(body.experience_session_id).toBeTypeOf('string');
+    expect(body.experience_token).toBeTypeOf('string');
+  });
+
+  it('returns 201 waitlisted response for OTHER first submission', async () => {
+    const request = createJsonRequest('POST', '/api/demo/v1/start', {
+      ...validStartRequest,
+      email: `waitlist-${randomUUID()}@example.com`,
+      business_market: 'OTHER',
+      country_name: 'Canada',
+      phone_number: undefined,
+      experience_definition_id: 'expdef_plumbing_demo_v1',
+    });
+    const response = createMockResponse();
+
+    await handleRequest(request, response);
+
+    expect(response.statusCode).toBe(201);
+    const body = JSON.parse(response.chunks.join(''));
+    expect(body).toEqual({
+      status: 'waitlisted',
+      country_name: 'Canada',
+      message: WAITLIST_SUCCESS_MESSAGE,
+    });
+  });
+
+  it('excludes demo session fields from waitlisted response', async () => {
+    const request = createJsonRequest('POST', '/api/demo/v1/start', {
+      ...validStartRequest,
+      email: `waitlist-fields-${randomUUID()}@example.com`,
+      business_market: 'OTHER',
+      country_name: 'Germany',
+      phone_number: undefined,
+      experience_definition_id: 'expdef_plumbing_demo_v1',
+    });
+    const response = createMockResponse();
+
+    await handleRequest(request, response);
+
+    const body = JSON.parse(response.chunks.join(''));
+    expect(body.status).toBe('waitlisted');
+    expect(body).not.toHaveProperty('experience_session_id');
+    expect(body).not.toHaveProperty('experience_token');
+    expect(body).not.toHaveProperty('shared_demo_phone_number');
+    expect(body).not.toHaveProperty('prospect_id');
+    expect(body).not.toHaveProperty('session_state');
+  });
+
+  it('returns 409 WAITLIST_EMAIL_EXISTS for duplicate waitlist submissions', async () => {
+    const email = `duplicate-${randomUUID()}@example.com`;
+    const payload = {
+      ...validStartRequest,
+      email,
+      business_market: 'OTHER' as const,
+      country_name: 'Canada',
+      phone_number: undefined,
+      experience_definition_id: 'expdef_plumbing_demo_v1',
+    };
+
+    const first = createMockResponse();
+    await handleRequest(createJsonRequest('POST', '/api/demo/v1/start', payload), first);
+    expect(first.statusCode).toBe(201);
+
+    const second = createMockResponse();
+    await handleRequest(createJsonRequest('POST', '/api/demo/v1/start', payload), second);
+    expect(second.statusCode).toBe(409);
+
+    const body = JSON.parse(second.chunks.join(''));
+    expect(body.error.code).toBe('WAITLIST_EMAIL_EXISTS');
+    expect(body.error.message).toBe("You're already on our waitlist.");
+    expect(body.error.code).not.toBe('INTERNAL_ERROR');
+    expect(body).not.toHaveProperty('status');
+  });
+
+  it('still returns 400 VALIDATION_FAILED for unknown business market', async () => {
+    const request = createJsonRequest('POST', '/api/demo/v1/start', {
+      ...validStartRequest,
+      business_market: 'UK',
+      experience_definition_id: 'expdef_plumbing_demo_v1',
+    });
+    const response = createMockResponse();
+
+    await handleRequest(request, response);
+
+    expect(response.statusCode).toBe(400);
+    expect(JSON.parse(response.chunks.join('')).error.code).toBe('VALIDATION_FAILED');
   });
 });
 

@@ -427,7 +427,7 @@ describe('demo-api-bff security', () => {
 
     const first = createMockResponse();
     await adaptiveHandler(makeRequest('203.0.113.91'), first);
-    expect(first.statusCode).not.toBe(403);
+    expect(first.statusCode).toBe(201);
 
     const blocked = createMockResponse();
     await adaptiveHandler(makeRequest('203.0.113.92'), blocked);
