@@ -1,12 +1,46 @@
 import { useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { DemoApiClient, DemoApiClientError } from '../api/demo-api-client.js';
+import { DemoApiClient, DemoApiClientError, type StartDemoRequest } from '../api/demo-api-client.js';
 import { QualificationForm } from '../components/QualificationForm.js';
 import { UnsupportedIndustryNotice } from '../components/UnsupportedIndustryNotice.js';
 import { Layout, PageCard } from '../components/Layout.js';
 import { EXPERIENCE_DEFINITION_ID } from '../lib/constants.js';
 import { loadSelectedIndustry, saveDemoSession } from '../lib/session-storage.js';
 import { isIndustrySupported, type QualificationFormValues } from '../lib/validation.js';
+
+function buildStartDemoPayload(
+  values: QualificationFormValues,
+  challengeCompleted: boolean,
+): StartDemoRequest {
+  const base: StartDemoRequest = {
+    full_name: values.fullName,
+    business_name: values.businessName,
+    email: values.email,
+    business_market: values.businessMarket as 'NL' | 'US' | 'OTHER',
+    industry: values.industry,
+    business_location: values.businessLocation,
+    company_size: values.companySize,
+    website: values.noWebsite ? undefined : values.website,
+    no_website: values.noWebsite,
+    biggest_challenge: values.biggestChallenge,
+    implementation_timeframe: values.implementationTimeframe,
+    experience_definition_id: EXPERIENCE_DEFINITION_ID,
+    company_website_url: values.honeypot,
+    challenge_completed: challengeCompleted,
+  };
+
+  if (values.businessMarket === 'OTHER') {
+    return {
+      ...base,
+      country_name: values.countryName.trim(),
+    };
+  }
+
+  return {
+    ...base,
+    phone_number: values.phoneE164 ?? undefined,
+  };
+}
 
 export function QualificationPage({ client }: { client: DemoApiClient }) {
   const navigate = useNavigate();
@@ -20,22 +54,7 @@ export function QualificationPage({ client }: { client: DemoApiClient }) {
     setSubmitError(null);
 
     try {
-      const response = await client.startDemo({
-        full_name: values.fullName,
-        business_name: values.businessName,
-        email: values.email,
-        phone_number: values.phoneNumber,
-        industry: values.industry,
-        business_location: values.businessLocation,
-        company_size: values.companySize,
-        website: values.noWebsite ? undefined : values.website,
-        no_website: values.noWebsite,
-        biggest_challenge: values.biggestChallenge,
-        implementation_timeframe: values.implementationTimeframe,
-        experience_definition_id: EXPERIENCE_DEFINITION_ID,
-        company_website_url: values.honeypot,
-        challenge_completed: challengeCompleted,
-      });
+      const response = await client.startDemo(buildStartDemoPayload(values, challengeCompleted));
 
       saveDemoSession({
         experienceSessionId: response.experience_session_id,

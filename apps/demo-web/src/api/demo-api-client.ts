@@ -4,7 +4,9 @@ export interface StartDemoRequest {
   full_name: string;
   business_name: string;
   email: string;
-  phone_number: string;
+  business_market: 'NL' | 'US' | 'OTHER';
+  country_name?: string;
+  phone_number?: string;
   industry: string;
   business_location: string;
   company_size: string;

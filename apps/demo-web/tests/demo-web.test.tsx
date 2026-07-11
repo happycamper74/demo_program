@@ -17,7 +17,7 @@ import { InstructionsPage } from '../src/pages/InstructionsPage.js';
 import { LiveExperiencePage } from '../src/pages/LiveExperiencePage.js';
 import { QualificationPage } from '../src/pages/QualificationPage.js';
 import { RecoveryPage } from '../src/pages/RecoveryPage.js';
-import { validateQualificationForm } from '../src/lib/validation.js';
+import { validateQualificationForm, applyBusinessMarketChange } from '../src/lib/validation.js';
 import { saveBookingConfirmation, saveDemoSession, saveSelectedIndustry } from '../src/lib/session-storage.js';
 
 function renderWithRouter(ui: ReactElement, initialEntries = ['/']) {
@@ -60,6 +60,20 @@ describe('QualificationPage', () => {
     saveSelectedIndustry('plumbing');
   });
 
+  async function fillSupportedMarketForm(user: ReturnType<typeof userEvent.setup>) {
+    await user.click(screen.getByRole('radio', { name: /netherlands/i }));
+    await user.type(screen.getByLabelText(/full name/i), 'John Smith');
+    await user.type(screen.getByLabelText(/business name/i), "Joe's Plumbing");
+    await user.type(screen.getByLabelText(/^email$/i), 'john@example.com');
+    await user.type(screen.getByLabelText(/phone number/i), '0646275553');
+    await user.tab();
+    await user.type(screen.getByLabelText(/business location/i), 'Amsterdam');
+    await user.selectOptions(screen.getByLabelText(/company size/i), '2-5');
+    await user.type(screen.getByLabelText(/^website$/i), 'https://example.com');
+    await user.selectOptions(screen.getByLabelText(/biggest business challenge/i), 'never_miss_calls');
+    await user.selectOptions(screen.getByLabelText(/implementation timeframe/i), 'within_3_months');
+  }
+
   it('validates required fields before starting demo', async () => {
     const fetchImpl = vi.fn();
     const client = new DemoApiClient({ fetchImpl });
@@ -68,11 +82,79 @@ describe('QualificationPage', () => {
 
     await user.click(screen.getByRole('button', { name: /^start interactive demo$/i }));
 
-    expect(screen.getByText(/full name is required/i)).toBeInTheDocument();
+    expect(screen.getByText(/please select your business market/i)).toBeInTheDocument();
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 
-  it('starts demo on successful submit', async () => {
+  it('renders market selector and conditional fields', async () => {
+    const client = new DemoApiClient({ fetchImpl: vi.fn() });
+    const user = userEvent.setup();
+    renderWithRouter(<QualificationPage client={client} />, ['/demo/qualify']);
+
+    expect(screen.getByRole('radio', { name: /netherlands/i })).toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: /united states/i })).toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: /another country/i })).toBeInTheDocument();
+    expect(screen.queryByLabelText(/phone number/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/^country$/i)).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('radio', { name: /netherlands/i }));
+    expect(screen.getByLabelText(/phone number/i)).toBeInTheDocument();
+    expect(screen.queryByLabelText(/^country$/i)).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^start interactive demo$/i })).toBeInTheDocument();
+
+    await user.click(screen.getByRole('radio', { name: /another country/i }));
+    expect(screen.queryByLabelText(/phone number/i)).not.toBeInTheDocument();
+    expect(screen.getByLabelText(/^country$/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^join waitlist$/i })).toBeInTheDocument();
+  });
+
+  it('normalizes phone on blur for supported markets', async () => {
+    const client = new DemoApiClient({ fetchImpl: vi.fn() });
+    const user = userEvent.setup();
+    renderWithRouter(<QualificationPage client={client} />, ['/demo/qualify']);
+
+    await user.click(screen.getByRole('radio', { name: /netherlands/i }));
+    await user.type(screen.getByLabelText(/phone number/i), '0646275553');
+    await user.tab();
+
+    expect(screen.getByLabelText(/phone number/i)).toHaveValue('+31 6 46275553');
+  });
+
+  it('clears phone when switching between supported markets', async () => {
+    const client = new DemoApiClient({ fetchImpl: vi.fn() });
+    const user = userEvent.setup();
+    renderWithRouter(<QualificationPage client={client} />, ['/demo/qualify']);
+
+    await user.click(screen.getByRole('radio', { name: /netherlands/i }));
+    await user.type(screen.getByLabelText(/phone number/i), '0646275553');
+    await user.click(screen.getByRole('radio', { name: /united states/i }));
+
+    expect(screen.getByLabelText(/phone number/i)).toHaveValue('');
+  });
+
+  it('blocks submit for invalid phone numbers', async () => {
+    const fetchImpl = vi.fn();
+    const client = new DemoApiClient({ fetchImpl });
+    const user = userEvent.setup();
+    renderWithRouter(<QualificationPage client={client} />, ['/demo/qualify']);
+
+    await user.click(screen.getByRole('radio', { name: /netherlands/i }));
+    await user.type(screen.getByLabelText(/full name/i), 'John Smith');
+    await user.type(screen.getByLabelText(/business name/i), "Joe's Plumbing");
+    await user.type(screen.getByLabelText(/^email$/i), 'john@example.com');
+    await user.type(screen.getByLabelText(/phone number/i), 'not-a-phone');
+    await user.type(screen.getByLabelText(/business location/i), 'Amsterdam');
+    await user.selectOptions(screen.getByLabelText(/company size/i), '2-5');
+    await user.type(screen.getByLabelText(/^website$/i), 'https://example.com');
+    await user.selectOptions(screen.getByLabelText(/biggest business challenge/i), 'never_miss_calls');
+    await user.selectOptions(screen.getByLabelText(/implementation timeframe/i), 'within_3_months');
+    await user.click(screen.getByRole('button', { name: /^start interactive demo$/i }));
+
+    expect(screen.getByText(/valid phone number for the selected market/i)).toBeInTheDocument();
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it('starts demo on successful submit with E.164 phone payload', async () => {
     const fetchImpl = vi.fn().mockResolvedValue({
       ok: true,
       json: async () => ({
@@ -96,37 +178,83 @@ describe('QualificationPage', () => {
     const user = userEvent.setup();
     renderWithRouter(<QualificationPage client={client} />, ['/demo/qualify']);
 
-    await user.type(screen.getByLabelText(/full name/i), 'John Smith');
-    await user.type(screen.getByLabelText(/business name/i), "Joe's Plumbing");
-    await user.type(screen.getByLabelText(/^email$/i), 'john@example.com');
-    await user.type(screen.getByLabelText(/phone number/i), '+31612345678');
-    await user.type(screen.getByLabelText(/business location/i), 'Amsterdam');
-    await user.selectOptions(screen.getByLabelText(/company size/i), '2-5');
-    await user.type(screen.getByLabelText(/^website$/i), 'https://example.com');
-    await user.selectOptions(screen.getByLabelText(/biggest business challenge/i), 'never_miss_calls');
-    await user.selectOptions(screen.getByLabelText(/implementation timeframe/i), 'within_3_months');
+    await fillSupportedMarketForm(user);
     await user.click(screen.getByRole('button', { name: /^start interactive demo$/i }));
 
     await waitFor(() => {
       expect(fetchImpl).toHaveBeenCalled();
     });
+
+    const requestBody = JSON.parse(String(fetchImpl.mock.calls[0]?.[1]?.body));
+    expect(requestBody.business_market).toBe('NL');
+    expect(requestBody.phone_number).toBe('+31646275553');
+    expect(requestBody).not.toHaveProperty('country_name');
+  });
+
+  it('submits waitlist payload without phone_number for OTHER market', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        status: 'started',
+        prospect_id: 'prospect_1',
+        experience_session_id: 'expsess_1',
+        experience_version: 'plumbing_demo_v1',
+        industry_supported: true,
+        session_state: 'waiting_for_call',
+        shared_demo_phone_number: '+31201234567',
+        experience_token: 'token_123',
+      }),
+    });
+
+    const client = new DemoApiClient({ fetchImpl });
+    const user = userEvent.setup();
+    renderWithRouter(<QualificationPage client={client} />, ['/demo/qualify']);
+
+    await user.click(screen.getByRole('radio', { name: /another country/i }));
+    await user.type(screen.getByLabelText(/full name/i), 'John Smith');
+    await user.type(screen.getByLabelText(/business name/i), "Joe's Plumbing");
+    await user.type(screen.getByLabelText(/^email$/i), 'john@example.com');
+    await user.type(screen.getByLabelText(/^country$/i), 'Canada');
+    await user.type(screen.getByLabelText(/business location/i), 'Toronto');
+    await user.selectOptions(screen.getByLabelText(/company size/i), '2-5');
+    await user.type(screen.getByLabelText(/^website$/i), 'https://example.com');
+    await user.selectOptions(screen.getByLabelText(/biggest business challenge/i), 'never_miss_calls');
+    await user.selectOptions(screen.getByLabelText(/implementation timeframe/i), 'within_3_months');
+    await user.click(screen.getByRole('button', { name: /^join waitlist$/i }));
+
+    await waitFor(() => {
+      expect(fetchImpl).toHaveBeenCalled();
+    });
+
+    const requestBody = JSON.parse(String(fetchImpl.mock.calls[0]?.[1]?.body));
+    expect(requestBody.business_market).toBe('OTHER');
+    expect(requestBody.country_name).toBe('Canada');
+    expect(requestBody).not.toHaveProperty('phone_number');
   });
 });
 
 describe('validation helpers', () => {
+  const baseValues = {
+    businessMarket: 'NL' as const,
+    countryName: '',
+    fullName: 'John',
+    businessName: 'Biz',
+    email: 'john@example.com',
+    phoneNumber: '0646275553',
+    phoneE164: null,
+    industry: 'plumbing',
+    businessLocation: 'Amsterdam',
+    companySize: '2-5',
+    website: 'https://example.com',
+    noWebsite: false,
+    biggestChallenge: 'never_miss_calls',
+    implementationTimeframe: 'within_3_months',
+    honeypot: '',
+  };
+
   it('rejects honeypot submissions', () => {
     const result = validateQualificationForm({
-      fullName: 'John',
-      businessName: 'Biz',
-      email: 'john@example.com',
-      phoneNumber: '+31612345678',
-      industry: 'plumbing',
-      businessLocation: 'Amsterdam',
-      companySize: '2-5',
-      website: 'https://example.com',
-      noWebsite: false,
-      biggestChallenge: 'never_miss_calls',
-      implementationTimeframe: 'within_3_months',
+      ...baseValues,
       honeypot: 'spam',
     });
 
@@ -136,21 +264,84 @@ describe('validation helpers', () => {
 
   it('supports no website option', () => {
     const result = validateQualificationForm({
-      fullName: 'John',
-      businessName: 'Biz',
-      email: 'john@example.com',
-      phoneNumber: '+31612345678',
-      industry: 'plumbing',
-      businessLocation: 'Amsterdam',
-      companySize: '2-5',
+      ...baseValues,
       website: '',
       noWebsite: true,
-      biggestChallenge: 'never_miss_calls',
-      implementationTimeframe: 'within_3_months',
-      honeypot: '',
     });
 
     expect(result.valid).toBe(true);
+  });
+
+  it('requires business market selection', () => {
+    const result = validateQualificationForm({
+      ...baseValues,
+      businessMarket: '',
+    });
+
+    expect(result.valid).toBe(false);
+    expect(result.errors.businessMarket).toBeDefined();
+  });
+
+  it('requires country for OTHER market', () => {
+    const result = validateQualificationForm({
+      ...baseValues,
+      businessMarket: 'OTHER',
+      phoneNumber: '',
+    });
+
+    expect(result.valid).toBe(false);
+    expect(result.errors.countryName).toBeDefined();
+  });
+
+  it('rejects country names longer than 100 characters', () => {
+    const result = validateQualificationForm({
+      ...baseValues,
+      businessMarket: 'OTHER',
+      countryName: 'a'.repeat(101),
+      phoneNumber: '',
+    });
+
+    expect(result.valid).toBe(false);
+    expect(result.errors.countryName).toMatch(/100 characters/i);
+  });
+
+  it('rejects invalid phone numbers for supported markets', () => {
+    const result = validateQualificationForm({
+      ...baseValues,
+      phoneNumber: 'not-a-phone',
+    });
+
+    expect(result.valid).toBe(false);
+    expect(result.errors.phoneNumber).toBeDefined();
+  });
+
+  it('returns normalized E.164 for valid supported-market phones', () => {
+    const result = validateQualificationForm(baseValues);
+
+    expect(result.valid).toBe(true);
+    expect(result.normalizedPhoneE164).toBe('+31646275553');
+    expect(result.normalizedPhoneDisplay).toBe('+31 6 46275553');
+  });
+
+  it('clears phone when switching supported markets', () => {
+    const result = applyBusinessMarketChange('US', {
+      phoneNumber: '+31 6 46275553',
+      phoneE164: '+31646275553',
+      countryName: '',
+    });
+
+    expect(result.phoneNumber).toBe('');
+    expect(result.phoneE164).toBeNull();
+  });
+
+  it('clears country when leaving OTHER market', () => {
+    const result = applyBusinessMarketChange('NL', {
+      phoneNumber: '',
+      phoneE164: null,
+      countryName: 'Canada',
+    });
+
+    expect(result.countryName).toBe('');
   });
 });
 

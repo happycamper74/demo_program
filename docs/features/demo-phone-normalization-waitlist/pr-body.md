@@ -4,7 +4,7 @@ Implements country-aware phone normalization and unsupported-market waitlist for
 
 ### Scope
 
-- [ ] T001 Shared phone normalization
+- [x] T001 Shared phone normalization
 - [ ] T002 Qualification UI
 - [ ] T003 Backend validation & prospect persistence
 - [ ] T004 Waitlist persistence
