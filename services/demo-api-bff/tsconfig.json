@@ -14,6 +14,7 @@
     { "path": "../../packages/discovery-booking" },
     { "path": "../../packages/event-contracts" },
     { "path": "../../packages/leadboard-client" },
+    { "path": "../../packages/phone-normalization" },
     { "path": "../../packages/shared-types" },
     { "path": "../experience-engine" },
     { "path": "../workflow-orchestrator" }

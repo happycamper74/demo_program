@@ -17,6 +17,7 @@
     { "path": "./packages/discovery-booking" },
     { "path": "./packages/sdk" },
     { "path": "./packages/ui" },
-    { "path": "./packages/leadboard-client" }
+    { "path": "./packages/leadboard-client" },
+    { "path": "./packages/phone-normalization" }
   ]
 }

@@ -68,6 +68,9 @@ importers:
       '@experience-platform/event-contracts':
         specifier: workspace:*
         version: link:../../packages/event-contracts
+      '@experience-platform/phone-normalization':
+        specifier: workspace:*
+        version: link:../../packages/phone-normalization
       react:
         specifier: ^19.1.0
         version: 19.2.7
@@ -168,6 +171,12 @@ importers:
 
   packages/leadboard-client: {}
 
+  packages/phone-normalization:
+    dependencies:
+      libphonenumber-js:
+        specifier: ^1.12.9
+        version: 1.13.8
+
   packages/sdk: {}
 
   packages/shared-types: {}
@@ -205,6 +214,9 @@ importers:
       '@experience-platform/leadboard-client':
         specifier: workspace:*
         version: link:../../packages/leadboard-client
+      '@experience-platform/phone-normalization':
+        specifier: workspace:*
+        version: link:../../packages/phone-normalization
       '@experience-platform/shared-types':
         specifier: workspace:*
         version: link:../../packages/shared-types
@@ -1487,6 +1499,9 @@ packages:
   levn@0.4.1:
     resolution: {integrity: sha512-+bT2uH4E5LGE7h/n3evcS/sQlJXCpIp6ym8OWJ5eV6+67Dsql/LaaT7qJBAt2rzfoa/5QBGBhxDix1dMt2kQKQ==}
     engines: {node: '>= 0.8.0'}
+
+  libphonenumber-js@1.13.8:
+    resolution: {integrity: sha512-80xal1m93rADejw2pMp2MSzFhHCPLEspjHxnH2UtqI+DgAmElsbmLMiqk9niwH9NWAfjsRtaJI+qBrOEmRx9nQ==}
 
   locate-path@6.0.0:
     resolution: {integrity: sha512-iPZK6eYjbxRu3uB4/WZ3EsEIMJFMqAoopl3R+zuq0UjcAm/MO6KCweDgPfP3elTztoKP3KtnVHxTn2NHBSDVUw==}
@@ -3140,6 +3155,8 @@ snapshots:
     dependencies:
       prelude-ls: 1.2.1
       type-check: 0.4.0
+
+  libphonenumber-js@1.13.8: {}
 
   locate-path@6.0.0:
     dependencies:

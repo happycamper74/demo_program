@@ -20,6 +20,7 @@
     "@experience-platform/event-contracts": "workspace:*",
     "@experience-platform/experience-engine": "workspace:*",
     "@experience-platform/leadboard-client": "workspace:*",
+    "@experience-platform/phone-normalization": "workspace:*",
     "@experience-platform/shared-types": "workspace:*",
     "@experience-platform/workflow-orchestrator": "workspace:*"
   }
