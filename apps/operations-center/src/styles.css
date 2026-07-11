@@ -1,0 +1,85 @@
+.ops-layout {
+  font-family: system-ui, sans-serif;
+  margin: 0;
+  color: #1f2937;
+}
+
+.ops-header {
+  background: #111827;
+  color: #fff;
+  padding: 1rem 1.5rem;
+}
+
+.ops-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-top: 0.75rem;
+}
+
+.ops-nav a {
+  color: #dbeafe;
+  text-decoration: none;
+}
+
+.ops-nav a.active {
+  color: #fff;
+  font-weight: 600;
+}
+
+.ops-main {
+  padding: 1.5rem;
+}
+
+.ops-card {
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  padding: 1rem;
+  margin-bottom: 1rem;
+}
+
+.ops-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.ops-table th,
+.ops-table td {
+  border-bottom: 1px solid #e5e7eb;
+  padding: 0.5rem;
+  text-align: left;
+}
+
+.ops-priority-critical {
+  color: #b91c1c;
+  font-weight: 700;
+}
+
+.ops-priority-high {
+  color: #c2410c;
+  font-weight: 600;
+}
+
+.ops-status-healthy {
+  color: #15803d;
+}
+
+.ops-status-unhealthy {
+  color: #b91c1c;
+}
+
+.ops-filters {
+  display: grid;
+  gap: 0.5rem;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  margin-bottom: 1rem;
+}
+
+.ops-filters input,
+.ops-filters button {
+  padding: 0.5rem;
+}
+
+.muted {
+  color: #6b7280;
+}

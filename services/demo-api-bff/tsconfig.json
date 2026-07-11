@@ -1,0 +1,21 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "./dist",
+    "rootDir": "./src",
+    "composite": true
+  },
+  "include": ["src/**/*"],
+  "exclude": ["node_modules", "dist", "tests"],
+  "references": [
+    { "path": "../../packages/analytics-core" },
+    { "path": "../../packages/demo-security" },
+    { "path": "../../packages/auth" },
+    { "path": "../../packages/discovery-booking" },
+    { "path": "../../packages/event-contracts" },
+    { "path": "../../packages/leadboard-client" },
+    { "path": "../../packages/shared-types" },
+    { "path": "../experience-engine" },
+    { "path": "../workflow-orchestrator" }
+  ]
+}

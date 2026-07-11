@@ -1,0 +1,26 @@
+{
+  "name": "@experience-platform/event-contracts",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./presentation-events": {
+      "types": "./dist/presentation-events.d.ts",
+      "import": "./dist/presentation-events.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run tests",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@experience-platform/shared-types": "workspace:*"
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "files": [],
+  "references": [
+    { "path": "./apps/demo-web" },
+    { "path": "./apps/operations-center" },
+    { "path": "./services/demo-api-bff" },
+    { "path": "./services/experience-engine" },
+    { "path": "./services/workflow-orchestrator" },
+    { "path": "./services/analytics" },
+    { "path": "./services/cleanup-worker" },
+    { "path": "./services/notification-worker" },
+    { "path": "./packages/shared-types" },
+    { "path": "./packages/auth" },
+    { "path": "./packages/event-contracts" },
+    { "path": "./packages/analytics-core" },
+    { "path": "./packages/demo-security" },
+    { "path": "./packages/discovery-booking" },
+    { "path": "./packages/sdk" },
+    { "path": "./packages/ui" },
+    { "path": "./packages/leadboard-client" }
+  ]
+}

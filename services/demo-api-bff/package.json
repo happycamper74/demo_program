@@ -1,0 +1,26 @@
+{
+  "name": "@experience-platform/demo-api-bff",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsx watch src/index.ts",
+    "start": "node dist/index.js",
+    "test": "vitest run tests",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@experience-platform/analytics-core": "workspace:*",
+    "@experience-platform/auth": "workspace:*",
+    "@experience-platform/demo-security": "workspace:*",
+    "@experience-platform/discovery-booking": "workspace:*",
+    "@experience-platform/event-contracts": "workspace:*",
+    "@experience-platform/experience-engine": "workspace:*",
+    "@experience-platform/leadboard-client": "workspace:*",
+    "@experience-platform/shared-types": "workspace:*",
+    "@experience-platform/workflow-orchestrator": "workspace:*"
+  }
+}
