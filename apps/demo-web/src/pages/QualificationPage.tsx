@@ -1,11 +1,23 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { DemoApiClient, DemoApiClientError, type StartDemoRequest } from '../api/demo-api-client.js';
+import {
+  DemoApiClient,
+  DemoApiClientError,
+  isWaitlistEmailExistsError,
+  type StartDemoRequest,
+} from '../api/demo-api-client.js';
 import { QualificationForm } from '../components/QualificationForm.js';
 import { UnsupportedIndustryNotice } from '../components/UnsupportedIndustryNotice.js';
 import { Layout, PageCard } from '../components/Layout.js';
 import { EXPERIENCE_DEFINITION_ID } from '../lib/constants.js';
-import { loadSelectedIndustry, saveDemoSession } from '../lib/session-storage.js';
+import {
+  clearDemoSession,
+  clearWaitlistConfirmation,
+  loadSelectedIndustry,
+  saveDemoSession,
+  saveWaitlistConfirmation,
+  WAITLIST_CONFIRMATION_VERSION,
+} from '../lib/session-storage.js';
 import { isIndustrySupported, type QualificationFormValues } from '../lib/validation.js';
 
 function buildStartDemoPayload(
@@ -50,12 +62,28 @@ export function QualificationPage({ client }: { client: DemoApiClient }) {
   const [challengeCompleted, setChallengeCompleted] = useState(false);
   const industrySupported = useMemo(() => isIndustrySupported(industry), [industry]);
 
+  useEffect(() => {
+    clearWaitlistConfirmation();
+  }, []);
+
   async function handleSubmit(values: QualificationFormValues) {
     setSubmitError(null);
 
     try {
       const response = await client.startDemo(buildStartDemoPayload(values, challengeCompleted));
 
+      if (response.status === 'waitlisted') {
+        clearDemoSession();
+        saveWaitlistConfirmation({
+          version: WAITLIST_CONFIRMATION_VERSION,
+          outcome: 'created',
+          country_name: response.country_name,
+        });
+        navigate('/demo/waitlist-confirmed');
+        return;
+      }
+
+      clearWaitlistConfirmation();
       saveDemoSession({
         experienceSessionId: response.experience_session_id,
         experienceToken: response.experience_token,
@@ -77,6 +105,17 @@ export function QualificationPage({ client }: { client: DemoApiClient }) {
 
       navigate('/demo/instructions');
     } catch (error) {
+      if (isWaitlistEmailExistsError(error)) {
+        clearDemoSession();
+        saveWaitlistConfirmation({
+          version: WAITLIST_CONFIRMATION_VERSION,
+          outcome: 'already_exists',
+          country_name: values.countryName.trim(),
+        });
+        navigate('/demo/waitlist-confirmed');
+        return;
+      }
+
       if (error instanceof DemoApiClientError && error.code === 'CHALLENGE_REQUIRED') {
         setChallengeRequired(true);
         setSubmitError(error.message);

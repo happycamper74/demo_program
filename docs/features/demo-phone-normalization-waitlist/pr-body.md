@@ -10,7 +10,7 @@ Implements country-aware phone normalization and unsupported-market waitlist for
 - [x] T004 Waitlist persistence
 - [x] T005 Start-flow branching
 - [x] T006 API responses
-- [ ] T007 Waitlist confirmation UX
+- [x] T007 Waitlist confirmation UX
 - [ ] T008 Documentation & regression
 
 ## Status

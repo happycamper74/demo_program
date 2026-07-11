@@ -91,3 +91,46 @@ export function loadBookingConfirmation(): {
       })
     : null;
 }
+
+export const WAITLIST_CONFIRMATION_VERSION = 1 as const;
+
+export type WaitlistConfirmationOutcome = 'created' | 'already_exists';
+
+export interface WaitlistConfirmationState {
+  readonly version: typeof WAITLIST_CONFIRMATION_VERSION;
+  readonly outcome: WaitlistConfirmationOutcome;
+  readonly country_name: string;
+}
+
+const WAITLIST_CONFIRMATION_KEY = 'leadboard_waitlist_confirmation';
+
+export function saveWaitlistConfirmation(state: WaitlistConfirmationState): void {
+  sessionStorage.setItem(WAITLIST_CONFIRMATION_KEY, JSON.stringify(state));
+}
+
+export function loadWaitlistConfirmation(): WaitlistConfirmationState | null {
+  const raw = sessionStorage.getItem(WAITLIST_CONFIRMATION_KEY);
+  if (!raw) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(raw) as WaitlistConfirmationState;
+    if (parsed.version !== WAITLIST_CONFIRMATION_VERSION) {
+      return null;
+    }
+    if (parsed.outcome !== 'created' && parsed.outcome !== 'already_exists') {
+      return null;
+    }
+    if (typeof parsed.country_name !== 'string') {
+      return null;
+    }
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+export function clearWaitlistConfirmation(): void {
+  sessionStorage.removeItem(WAITLIST_CONFIRMATION_KEY);
+}
