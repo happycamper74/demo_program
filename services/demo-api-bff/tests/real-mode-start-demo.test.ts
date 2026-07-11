@@ -39,6 +39,7 @@ const validStartRequest: StartDemoRequest = {
   full_name: 'Charles Test',
   business_name: 'Test Plumbing Company',
   email: 'charles.fresh.2001@example.com',
+  business_market: 'NL',
   phone_number: '+31610002001',
   industry: 'plumbing',
   business_location: 'Amsterdam, Netherlands',
@@ -171,7 +172,7 @@ describe('real mode start demo', () => {
       createJsonRequest('POST', '/api/demo/v1/start', {
         ...validStartRequest,
         email: `real-start-${randomUUID()}@example.com`,
-        phone_number: `+3161${String(Date.now()).slice(-8)}`,
+        phone_number: `+3161${String(Date.now()).slice(-7)}`,
       }),
       response,
     );
@@ -225,7 +226,7 @@ describe('real mode start demo', () => {
       createJsonRequest('POST', '/api/demo/v1/start', {
         ...validStartRequest,
         email: `real-fallback-${randomUUID()}@example.com`,
-        phone_number: `+3161${String(Date.now()).slice(-8)}`,
+        phone_number: `+3161${String(Date.now()).slice(-7)}`,
       }),
       response,
     );

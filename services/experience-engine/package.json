@@ -21,6 +21,10 @@
     "./experience-prospects": {
       "types": "./dist/experience-prospects.d.ts",
       "import": "./dist/experience-prospects.js"
+    },
+    "./experience-waitlist": {
+      "types": "./dist/experience-waitlist.d.ts",
+      "import": "./dist/experience-waitlist.js"
     }
   },
   "scripts": {

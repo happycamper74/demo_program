@@ -42,6 +42,13 @@ export interface DemoStartSecurityInput {
   readonly challengeCompleted?: boolean;
 }
 
+export interface WaitlistStartSecurityInput {
+  readonly clientIp: string;
+  readonly emailNormalized: string;
+  readonly honeypotValue?: string | null;
+  readonly challengeCompleted?: boolean;
+}
+
 export interface DemoStartSecurityResult {
   readonly outcome: DemoStartGuardOutcome;
   readonly riskLevel: RiskLevel;

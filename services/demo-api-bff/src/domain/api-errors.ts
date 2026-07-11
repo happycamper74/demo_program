@@ -107,3 +107,9 @@ export function activeSessionExists(): DemoApiError {
 export function internalError(message = 'An unexpected error occurred.'): DemoApiError {
   return new DemoApiError('INTERNAL_ERROR', message, 500);
 }
+
+export function waitlistEmailExists(
+  message = "You're already on our waitlist.",
+): DemoApiError {
+  return new DemoApiError('WAITLIST_EMAIL_EXISTS', message, 409);
+}

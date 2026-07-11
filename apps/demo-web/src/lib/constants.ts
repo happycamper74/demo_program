@@ -6,6 +6,16 @@ export const EXPERIENCE_DEFINITION_ID = 'expdef_plumbing_demo_v1';
 
 export const SUPPORTED_INDUSTRY = 'plumbing';
 
+export type BusinessMarket = 'NL' | 'US' | 'OTHER';
+
+export const BUSINESS_MARKET_OPTIONS = [
+  { value: 'NL' as const, label: 'Netherlands' },
+  { value: 'US' as const, label: 'United States' },
+  { value: 'OTHER' as const, label: 'Another Country' },
+] as const;
+
+export const COUNTRY_NAME_MAX_LENGTH = 100;
+
 export const INDUSTRY_OPTIONS = [
   { value: 'plumbing', label: 'Plumbing' },
   { value: 'electrical', label: 'Electrical' },

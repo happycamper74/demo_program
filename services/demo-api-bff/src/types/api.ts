@@ -1,8 +1,12 @@
+export type BusinessMarket = 'NL' | 'US' | 'OTHER';
+
 export interface StartDemoRequest {
   readonly full_name: string;
   readonly business_name: string;
   readonly email: string;
-  readonly phone_number: string;
+  readonly business_market: BusinessMarket;
+  readonly country_name?: string;
+  readonly phone_number?: string;
   readonly industry: string;
   readonly business_location: string;
   readonly company_size: string;
@@ -16,7 +20,7 @@ export interface StartDemoRequest {
   readonly client_context?: Record<string, unknown>;
 }
 
-export interface StartDemoResponse {
+export interface StartedDemoResponse {
   readonly status: 'started';
   readonly prospect_id: string;
   readonly experience_session_id: string;
@@ -38,6 +42,17 @@ export interface StartDemoResponse {
   };
   readonly simulate_call_available: boolean;
 }
+
+export interface WaitlistedResponse {
+  readonly status: 'waitlisted';
+  readonly country_name: string;
+  readonly message: string;
+}
+
+export type StartDemoResponse = StartedDemoResponse | WaitlistedResponse;
+
+export const WAITLIST_SUCCESS_MESSAGE =
+  "Thank you for your interest. We'll let you know when the demo is available in your market.";
 
 export interface SessionStatusResponse {
   readonly experience_session_id: string;

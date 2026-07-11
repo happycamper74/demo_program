@@ -23,6 +23,11 @@ import {
 import type { ExperienceDefinitionService } from '@experience-platform/experience-engine/experience-definitions';
 import type { ProspectService } from '@experience-platform/experience-engine/experience-prospects';
 import type {
+  CreateWaitlistSubmissionInput,
+  WaitlistService,
+} from '@experience-platform/experience-engine/experience-waitlist';
+import type { DemoStartSecurityResult } from '@experience-platform/demo-security';
+import type {
   ExperienceSessionRepository,
   ExperienceSessionService,
 } from '@experience-platform/experience-engine/experience-sessions';
@@ -40,8 +45,9 @@ import {
   DiscoveryBookingNotFoundError,
   type MockDiscoveryBookingService,
 } from '@experience-platform/discovery-booking';
-import type { ExperienceSession } from '@experience-platform/shared-types';
+import type { ExperienceSession, UpsertProspectInput } from '@experience-platform/shared-types';
 import type { WorkflowOrchestrator } from '@experience-platform/workflow-orchestrator/orchestrator';
+import { normalizeDemoPhone, type DemoMarket } from '@experience-platform/phone-normalization';
 import {
   buildPresentationEvent,
   buildRestrictedLeadViewUrl,
@@ -77,8 +83,9 @@ import type {
   SessionStatusResponse,
   SimulateCallResponse,
   StartDemoRequest,
-  StartDemoResponse,
+  StartedDemoResponse,
 } from '../types/api.js';
+import type { BusinessMarket } from '../types/api.js';
 import { mapDomainEventToPresentationEvents as mapToPresentation } from './presentation-event-mapper.js';
 
 const DEFAULT_TOKEN_PERMISSIONS = EXPERIENCE_TOKEN_PERMISSIONS;
@@ -91,6 +98,7 @@ export interface DemoServiceLogger {
 
 export interface DemoServiceDependencies {
   readonly prospectService: ProspectService;
+  readonly waitlistService: WaitlistService;
   readonly experienceDefinitionService: ExperienceDefinitionService;
   readonly experienceSessionService: ExperienceSessionService;
   readonly experienceSessionRepository: ExperienceSessionRepository;
@@ -113,16 +121,41 @@ export interface StartDemoRequestContext {
   readonly clientIp: string;
 }
 
+export interface StartedDemoOutcome {
+  readonly kind: 'started';
+  readonly response: StartedDemoResponse;
+}
+
+export interface WaitlistedOutcome {
+  readonly kind: 'waitlisted';
+  readonly waitlistEntryId: string;
+  readonly countryName: string;
+}
+
+export type StartDemoOutcome = StartedDemoOutcome | WaitlistedOutcome;
+
 function normalizeIndustry(value: string): string {
   return value.trim().toLowerCase();
 }
 
-function validateStartDemoRequest(request: StartDemoRequest): void {
+const COUNTRY_NAME_MAX_LENGTH = 100;
+
+const BUSINESS_MARKETS = new Set<BusinessMarket>(['NL', 'US', 'OTHER']);
+
+interface StartDemoValidationResult {
+  readonly phoneE164: string | null;
+}
+
+function isDemoMarket(market: BusinessMarket): market is DemoMarket {
+  return market === 'NL' || market === 'US';
+}
+
+function validateStartDemoRequest(request: StartDemoRequest): StartDemoValidationResult {
   const requiredFields: Array<keyof StartDemoRequest> = [
     'full_name',
     'business_name',
     'email',
-    'phone_number',
+    'business_market',
     'industry',
     'business_location',
     'company_size',
@@ -140,9 +173,75 @@ function validateStartDemoRequest(request: StartDemoRequest): void {
     throw validationFailed('Required fields are missing or empty.', { missing_fields: missing });
   }
 
+  if (!BUSINESS_MARKETS.has(request.business_market)) {
+    throw validationFailed('Invalid business market.', { business_market: request.business_market });
+  }
+
   if (!request.no_website && (!request.website || request.website.trim().length === 0)) {
     throw validationFailed('Website is required unless no_website is true.');
   }
+
+  if (request.business_market === 'OTHER') {
+    const countryName = request.country_name?.trim() ?? '';
+    if (!countryName) {
+      throw validationFailed('Country is required for unsupported markets.');
+    }
+    if (countryName.length > COUNTRY_NAME_MAX_LENGTH) {
+      throw validationFailed('Country must be 100 characters or fewer.');
+    }
+
+    return { phoneE164: null };
+  }
+
+  const phoneNumber = request.phone_number?.trim() ?? '';
+  if (!phoneNumber) {
+    throw validationFailed('Phone number is required for supported markets.');
+  }
+
+  const phoneResult = normalizeDemoPhone(phoneNumber, request.business_market);
+  if (!phoneResult.ok) {
+    throw validationFailed(phoneResult.message);
+  }
+
+  return { phoneE164: phoneResult.e164 };
+}
+
+function buildWaitlistSubmissionInput(request: StartDemoRequest): CreateWaitlistSubmissionInput {
+  return {
+    fullName: request.full_name,
+    businessName: request.business_name,
+    email: request.email,
+    countryName: request.country_name?.trim() ?? '',
+    businessLocation: request.business_location,
+    industry: request.industry,
+    companySize: request.company_size,
+    website: request.no_website ? null : (request.website ?? null),
+    noWebsite: request.no_website ?? false,
+    biggestChallenge: request.biggest_challenge,
+    implementationTimeframe: request.implementation_timeframe,
+    clientContext: request.client_context ?? null,
+  };
+}
+
+function buildProspectUpsertInput(
+  request: StartDemoRequest,
+  phoneE164: string | null,
+): UpsertProspectInput {
+  return {
+    fullName: request.full_name,
+    businessName: request.business_name,
+    email: request.email,
+    phoneNumber: phoneE164 ?? request.phone_number ?? '',
+    industry: request.industry,
+    businessLocation: request.business_location,
+    companySize: request.company_size,
+    website: request.no_website ? null : (request.website ?? null),
+    biggestChallenge: request.biggest_challenge,
+    implementationTimeframe: request.implementation_timeframe,
+    ...(phoneE164 !== null && isDemoMarket(request.business_market)
+      ? { businessMarket: request.business_market }
+      : {}),
+  };
 }
 
 export class DemoService {
@@ -163,34 +262,53 @@ export class DemoService {
   async startDemo(
     request: StartDemoRequest,
     context: StartDemoRequestContext,
-  ): Promise<StartDemoResponse> {
-    validateStartDemoRequest(request);
+  ): Promise<StartDemoOutcome> {
+    const { phoneE164 } = validateStartDemoRequest(request);
 
-    const securityResult = this.deps.demoStartGuard.evaluate({
+    if (request.business_market === 'OTHER') {
+      return this.startWaitlistDemo(request, context);
+    }
+
+    return this.startSupportedMarketDemo(request, context, phoneE164!);
+  }
+
+  private async startWaitlistDemo(
+    request: StartDemoRequest,
+    context: StartDemoRequestContext,
+  ): Promise<WaitlistedOutcome> {
+    const emailNormalized = request.email.trim().toLowerCase();
+
+    const securityResult = this.deps.demoStartGuard.evaluateWaitlist({
       clientIp: context.clientIp,
-      email: request.email,
-      phoneNumber: request.phone_number,
+      emailNormalized,
       honeypotValue: request.company_website_url,
       challengeCompleted: request.challenge_completed ?? false,
     });
 
-    this.safeLogger.info('demo.start.security_evaluated', {
-      request_id: context.requestId,
-      client_ip: context.clientIp,
-      outcome: securityResult.outcome,
+    this.applyGuardOutcome(securityResult, context);
+
+    const entry = await this.deps.waitlistService.create(buildWaitlistSubmissionInput(request));
+    return {
+      kind: 'waitlisted',
+      waitlistEntryId: entry.id,
+      countryName: entry.countryName,
+    };
+  }
+
+  private async startSupportedMarketDemo(
+    request: StartDemoRequest,
+    context: StartDemoRequestContext,
+    phoneE164: string,
+  ): Promise<StartedDemoOutcome> {
+    const securityResult = this.deps.demoStartGuard.evaluate({
+      clientIp: context.clientIp,
+      email: request.email,
+      phoneNumber: phoneE164,
+      honeypotValue: request.company_website_url,
+      challengeCompleted: request.challenge_completed ?? false,
     });
 
-    if (securityResult.outcome === 'block') {
-      throw demoStartUnavailable();
-    }
-
-    if (securityResult.outcome === 'challenge') {
-      throw challengeRequired();
-    }
-
-    if (securityResult.outcome === 'redirect_discovery') {
-      throw highRiskRedirect();
-    }
+    this.applyGuardOutcome(securityResult, context);
 
     const definition = await this.deps.experienceDefinitionService.getById(
       request.experience_definition_id,
@@ -200,18 +318,9 @@ export class DemoService {
       throw validationFailed('The selected experience is not available.');
     }
 
-    const prospect = await this.deps.prospectService.upsert({
-      fullName: request.full_name,
-      businessName: request.business_name,
-      email: request.email,
-      phoneNumber: request.phone_number,
-      industry: request.industry,
-      businessLocation: request.business_location,
-      companySize: request.company_size,
-      website: request.no_website ? null : (request.website ?? null),
-      biggestChallenge: request.biggest_challenge,
-      implementationTimeframe: request.implementation_timeframe,
-    });
+    const prospect = await this.deps.prospectService.upsert(
+      buildProspectUpsertInput(request, phoneE164),
+    );
 
     const completedSession = await this.deps.experienceSessionRepository.findCompletedByProspectAndDefinition(
       prospect.prospectId,
@@ -299,7 +408,7 @@ export class DemoService {
       );
     }
 
-    const response: StartDemoResponse = {
+    const response: StartedDemoResponse = {
       status: 'started',
       prospect_id: prospect.prospectId,
       experience_session_id: updatedSession.experienceSessionId,
@@ -315,23 +424,52 @@ export class DemoService {
 
     if (industrySupported) {
       return {
-        ...response,
-        instructions: {
-          title: 'Your interactive demo is ready',
-          message: 'Call the number below from the phone number you used to register.',
-          scenario_examples: [...definition.scenario.examples],
+        kind: 'started',
+        response: {
+          ...response,
+          instructions: {
+            title: 'Your interactive demo is ready',
+            message: 'Call the number below from the phone number you used to register.',
+            scenario_examples: [...definition.scenario.examples],
+          },
         },
       };
     }
 
     return {
-      ...response,
-      industry_notice: {
-        title: 'LeadBoard is currently optimized for plumbing businesses',
-        message:
-          'You are welcome to try the interactive demo. The example call uses a plumbing scenario, but it demonstrates the AI call handling, transcript, lead creation, and automation workflow that could power future industry editions.',
+      kind: 'started',
+      response: {
+        ...response,
+        industry_notice: {
+          title: 'LeadBoard is currently optimized for plumbing businesses',
+          message:
+            'You are welcome to try the interactive demo. The example call uses a plumbing scenario, but it demonstrates the AI call handling, transcript, lead creation, and automation workflow that could power future industry editions.',
+        },
       },
     };
+  }
+
+  private applyGuardOutcome(
+    securityResult: DemoStartSecurityResult,
+    context: StartDemoRequestContext,
+  ): void {
+    this.safeLogger.info('demo.start.security_evaluated', {
+      request_id: context.requestId,
+      client_ip: context.clientIp,
+      outcome: securityResult.outcome,
+    });
+
+    if (securityResult.outcome === 'block') {
+      throw demoStartUnavailable();
+    }
+
+    if (securityResult.outcome === 'challenge') {
+      throw challengeRequired();
+    }
+
+    if (securityResult.outcome === 'redirect_discovery') {
+      throw highRiskRedirect();
+    }
   }
 
   async getSessionStatus(

@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import type { Prospect, UpsertProspectInput } from '@experience-platform/shared-types';
+import type { DemoMarket, Prospect, UpsertProspectInput } from '@experience-platform/shared-types';
 
 export function buildProspectId(): string {
   return `prospect_${randomUUID()}`;
@@ -15,6 +15,7 @@ export function createProspectEntity(
     businessName: input.businessName,
     email: input.email,
     phoneNumber: input.phoneNumber,
+    businessMarket: input.businessMarket ?? null,
     industry: input.industry,
     businessLocation: input.businessLocation,
     companySize: input.companySize,
@@ -38,6 +39,7 @@ export function updateProspectEntity(
     businessName: input.businessName,
     email: input.email,
     phoneNumber: input.phoneNumber,
+    businessMarket: input.businessMarket ?? existing.businessMarket,
     industry: input.industry,
     businessLocation: input.businessLocation,
     companySize: input.companySize,
@@ -46,4 +48,8 @@ export function updateProspectEntity(
     implementationTimeframe: input.implementationTimeframe,
     updatedAt: now,
   };
+}
+
+export function isDemoMarket(market: string): market is DemoMarket {
+  return market === 'NL' || market === 'US';
 }

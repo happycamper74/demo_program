@@ -1,3 +1,7 @@
+import type { DemoMarket } from '@experience-platform/phone-normalization';
+
+export type { DemoMarket };
+
 export type ProspectStatus = 'new' | 'active' | 'completed' | 'blocked';
 
 export interface Prospect {
@@ -6,6 +10,7 @@ export interface Prospect {
   readonly businessName: string;
   readonly email: string;
   readonly phoneNumber: string;
+  readonly businessMarket: DemoMarket | null;
   readonly industry: string;
   readonly businessLocation: string;
   readonly companySize: string;
@@ -28,4 +33,5 @@ export interface UpsertProspectInput {
   readonly website?: string | null;
   readonly biggestChallenge: string;
   readonly implementationTimeframe: string;
+  readonly businessMarket?: DemoMarket;
 }

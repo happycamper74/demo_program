@@ -7,7 +7,7 @@ export type {
   ExperienceScenario,
 } from './experience-definition.js';
 
-export type { Prospect, ProspectStatus, UpsertProspectInput } from './prospect.js';
+export type { Prospect, ProspectStatus, UpsertProspectInput, DemoMarket } from './prospect.js';
 
 export type {
   CreateExperienceSessionInput,

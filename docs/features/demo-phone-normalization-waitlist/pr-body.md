@@ -1,0 +1,18 @@
+## Summary
+
+Implements country-aware phone normalization and unsupported-market waitlist for the demo program.
+
+### Scope
+
+- [x] T001 Shared phone normalization
+- [x] T002 Qualification UI
+- [x] T003 Backend validation & prospect persistence
+- [x] T004 Waitlist persistence
+- [x] T005 Start-flow branching
+- [x] T006 API responses
+- [x] T007 Waitlist confirmation UX
+- [ ] T008 Documentation & regression
+
+## Status
+
+🚧 Draft PR – implementation in progress.

@@ -1,7 +1,7 @@
 import type { ReactElement } from 'react';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   DemoApiClient,
@@ -16,12 +16,46 @@ import { LandingPage } from '../src/pages/LandingPage.js';
 import { InstructionsPage } from '../src/pages/InstructionsPage.js';
 import { LiveExperiencePage } from '../src/pages/LiveExperiencePage.js';
 import { QualificationPage } from '../src/pages/QualificationPage.js';
+import { WaitlistConfirmedPage } from '../src/pages/WaitlistConfirmedPage.js';
 import { RecoveryPage } from '../src/pages/RecoveryPage.js';
-import { validateQualificationForm } from '../src/lib/validation.js';
-import { saveBookingConfirmation, saveDemoSession, saveSelectedIndustry } from '../src/lib/session-storage.js';
+import { validateQualificationForm, applyBusinessMarketChange } from '../src/lib/validation.js';
+import {
+  loadDemoSession,
+  loadWaitlistConfirmation,
+  saveBookingConfirmation,
+  saveDemoSession,
+  saveSelectedIndustry,
+  saveWaitlistConfirmation,
+  WAITLIST_CONFIRMATION_VERSION,
+} from '../src/lib/session-storage.js';
 
 function renderWithRouter(ui: ReactElement, initialEntries = ['/']) {
   return render(<MemoryRouter initialEntries={initialEntries}>{ui}</MemoryRouter>);
+}
+
+function renderQualificationFlowRoutes(client: DemoApiClient, initialEntries = ['/demo/qualify']) {
+  return render(
+    <MemoryRouter initialEntries={initialEntries}>
+      <Routes>
+        <Route path="/demo/qualify" element={<QualificationPage client={client} />} />
+        <Route path="/demo/waitlist-confirmed" element={<WaitlistConfirmedPage />} />
+        <Route path="/demo/instructions" element={<InstructionsPage />} />
+      </Routes>
+    </MemoryRouter>,
+  );
+}
+
+async function fillWaitlistForm(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(screen.getByRole('radio', { name: /another country/i }));
+  await user.type(screen.getByLabelText(/full name/i), 'John Smith');
+  await user.type(screen.getByLabelText(/business name/i), "Joe's Plumbing");
+  await user.type(screen.getByLabelText(/^email$/i), 'john@example.com');
+  await user.type(screen.getByLabelText(/^country$/i), 'Canada');
+  await user.type(screen.getByLabelText(/business location/i), 'Toronto');
+  await user.selectOptions(screen.getByLabelText(/company size/i), '2-5');
+  await user.type(screen.getByLabelText(/^website$/i), 'https://example.com');
+  await user.selectOptions(screen.getByLabelText(/biggest business challenge/i), 'never_miss_calls');
+  await user.selectOptions(screen.getByLabelText(/implementation timeframe/i), 'within_3_months');
 }
 
 describe('LandingPage', () => {
@@ -60,6 +94,20 @@ describe('QualificationPage', () => {
     saveSelectedIndustry('plumbing');
   });
 
+  async function fillSupportedMarketForm(user: ReturnType<typeof userEvent.setup>) {
+    await user.click(screen.getByRole('radio', { name: /netherlands/i }));
+    await user.type(screen.getByLabelText(/full name/i), 'John Smith');
+    await user.type(screen.getByLabelText(/business name/i), "Joe's Plumbing");
+    await user.type(screen.getByLabelText(/^email$/i), 'john@example.com');
+    await user.type(screen.getByLabelText(/phone number/i), '0646275553');
+    await user.tab();
+    await user.type(screen.getByLabelText(/business location/i), 'Amsterdam');
+    await user.selectOptions(screen.getByLabelText(/company size/i), '2-5');
+    await user.type(screen.getByLabelText(/^website$/i), 'https://example.com');
+    await user.selectOptions(screen.getByLabelText(/biggest business challenge/i), 'never_miss_calls');
+    await user.selectOptions(screen.getByLabelText(/implementation timeframe/i), 'within_3_months');
+  }
+
   it('validates required fields before starting demo', async () => {
     const fetchImpl = vi.fn();
     const client = new DemoApiClient({ fetchImpl });
@@ -68,11 +116,79 @@ describe('QualificationPage', () => {
 
     await user.click(screen.getByRole('button', { name: /^start interactive demo$/i }));
 
-    expect(screen.getByText(/full name is required/i)).toBeInTheDocument();
+    expect(screen.getByText(/please select your business market/i)).toBeInTheDocument();
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 
-  it('starts demo on successful submit', async () => {
+  it('renders market selector and conditional fields', async () => {
+    const client = new DemoApiClient({ fetchImpl: vi.fn() });
+    const user = userEvent.setup();
+    renderWithRouter(<QualificationPage client={client} />, ['/demo/qualify']);
+
+    expect(screen.getByRole('radio', { name: /netherlands/i })).toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: /united states/i })).toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: /another country/i })).toBeInTheDocument();
+    expect(screen.queryByLabelText(/phone number/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/^country$/i)).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('radio', { name: /netherlands/i }));
+    expect(screen.getByLabelText(/phone number/i)).toBeInTheDocument();
+    expect(screen.queryByLabelText(/^country$/i)).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^start interactive demo$/i })).toBeInTheDocument();
+
+    await user.click(screen.getByRole('radio', { name: /another country/i }));
+    expect(screen.queryByLabelText(/phone number/i)).not.toBeInTheDocument();
+    expect(screen.getByLabelText(/^country$/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^join waitlist$/i })).toBeInTheDocument();
+  });
+
+  it('normalizes phone on blur for supported markets', async () => {
+    const client = new DemoApiClient({ fetchImpl: vi.fn() });
+    const user = userEvent.setup();
+    renderWithRouter(<QualificationPage client={client} />, ['/demo/qualify']);
+
+    await user.click(screen.getByRole('radio', { name: /netherlands/i }));
+    await user.type(screen.getByLabelText(/phone number/i), '0646275553');
+    await user.tab();
+
+    expect(screen.getByLabelText(/phone number/i)).toHaveValue('+31 6 46275553');
+  });
+
+  it('clears phone when switching between supported markets', async () => {
+    const client = new DemoApiClient({ fetchImpl: vi.fn() });
+    const user = userEvent.setup();
+    renderWithRouter(<QualificationPage client={client} />, ['/demo/qualify']);
+
+    await user.click(screen.getByRole('radio', { name: /netherlands/i }));
+    await user.type(screen.getByLabelText(/phone number/i), '0646275553');
+    await user.click(screen.getByRole('radio', { name: /united states/i }));
+
+    expect(screen.getByLabelText(/phone number/i)).toHaveValue('');
+  });
+
+  it('blocks submit for invalid phone numbers', async () => {
+    const fetchImpl = vi.fn();
+    const client = new DemoApiClient({ fetchImpl });
+    const user = userEvent.setup();
+    renderWithRouter(<QualificationPage client={client} />, ['/demo/qualify']);
+
+    await user.click(screen.getByRole('radio', { name: /netherlands/i }));
+    await user.type(screen.getByLabelText(/full name/i), 'John Smith');
+    await user.type(screen.getByLabelText(/business name/i), "Joe's Plumbing");
+    await user.type(screen.getByLabelText(/^email$/i), 'john@example.com');
+    await user.type(screen.getByLabelText(/phone number/i), 'not-a-phone');
+    await user.type(screen.getByLabelText(/business location/i), 'Amsterdam');
+    await user.selectOptions(screen.getByLabelText(/company size/i), '2-5');
+    await user.type(screen.getByLabelText(/^website$/i), 'https://example.com');
+    await user.selectOptions(screen.getByLabelText(/biggest business challenge/i), 'never_miss_calls');
+    await user.selectOptions(screen.getByLabelText(/implementation timeframe/i), 'within_3_months');
+    await user.click(screen.getByRole('button', { name: /^start interactive demo$/i }));
+
+    expect(screen.getByText(/valid phone number for the selected market/i)).toBeInTheDocument();
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it('starts demo on successful submit with E.164 phone payload', async () => {
     const fetchImpl = vi.fn().mockResolvedValue({
       ok: true,
       json: async () => ({
@@ -96,10 +212,252 @@ describe('QualificationPage', () => {
     const user = userEvent.setup();
     renderWithRouter(<QualificationPage client={client} />, ['/demo/qualify']);
 
+    await fillSupportedMarketForm(user);
+    await user.click(screen.getByRole('button', { name: /^start interactive demo$/i }));
+
+    await waitFor(() => {
+      expect(fetchImpl).toHaveBeenCalled();
+    });
+
+    const requestBody = JSON.parse(String(fetchImpl.mock.calls[0]?.[1]?.body));
+    expect(requestBody.business_market).toBe('NL');
+    expect(requestBody.phone_number).toBe('+31646275553');
+    expect(requestBody).not.toHaveProperty('country_name');
+  });
+
+  it('submits waitlist payload without phone_number for OTHER market', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 201,
+      json: async () => ({
+        status: 'waitlisted',
+        country_name: 'Canada',
+        message: "Thank you for your interest. We'll let you know when the demo is available in your market.",
+      }),
+    });
+
+    const client = new DemoApiClient({ fetchImpl });
+    const user = userEvent.setup();
+    renderQualificationFlowRoutes(client);
+
+    await fillWaitlistForm(user);
+    await user.click(screen.getByRole('button', { name: /^join waitlist$/i }));
+
+    await waitFor(() => {
+      expect(fetchImpl).toHaveBeenCalled();
+    });
+
+    const requestBody = JSON.parse(String(fetchImpl.mock.calls[0]?.[1]?.body));
+    expect(requestBody.business_market).toBe('OTHER');
+    expect(requestBody.country_name).toBe('Canada');
+    expect(requestBody).not.toHaveProperty('phone_number');
+
+    expect(await screen.findByText(/priority waitlist/i)).toBeInTheDocument();
+    expect(loadDemoSession()).toBeNull();
+    expect(loadWaitlistConfirmation()).toEqual({
+      version: 1,
+      outcome: 'created',
+      country_name: 'Canada',
+    });
+  });
+});
+
+describe('waitlist confirmation flow', () => {
+  beforeEach(() => {
+    sessionStorage.clear();
+    saveSelectedIndustry('plumbing');
+  });
+
+  it('navigates to instructions and saves demo session on started response', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        status: 'started',
+        prospect_id: 'prospect_1',
+        experience_session_id: 'expsess_1',
+        experience_version: 'plumbing_demo_v1',
+        industry_supported: true,
+        session_state: 'waiting_for_call',
+        shared_demo_phone_number: '+31201234567',
+        experience_token: 'token_123',
+        simulate_call_available: true,
+        instructions: {
+          title: 'Your interactive demo is ready',
+          message: 'Call the number below from the phone number you used to register.',
+          scenario_examples: ['Blocked kitchen sink'],
+        },
+      }),
+    });
+
+    const client = new DemoApiClient({ fetchImpl });
+    const user = userEvent.setup();
+    renderQualificationFlowRoutes(client);
+
+    await user.click(screen.getByRole('radio', { name: /netherlands/i }));
     await user.type(screen.getByLabelText(/full name/i), 'John Smith');
     await user.type(screen.getByLabelText(/business name/i), "Joe's Plumbing");
     await user.type(screen.getByLabelText(/^email$/i), 'john@example.com');
-    await user.type(screen.getByLabelText(/phone number/i), '+31612345678');
+    await user.type(screen.getByLabelText(/phone number/i), '0646275553');
+    await user.tab();
+    await user.type(screen.getByLabelText(/business location/i), 'Amsterdam');
+    await user.selectOptions(screen.getByLabelText(/company size/i), '2-5');
+    await user.type(screen.getByLabelText(/^website$/i), 'https://example.com');
+    await user.selectOptions(screen.getByLabelText(/biggest business challenge/i), 'never_miss_calls');
+    await user.selectOptions(screen.getByLabelText(/implementation timeframe/i), 'within_3_months');
+    await user.click(screen.getByRole('button', { name: /^start interactive demo$/i }));
+
+    expect(await screen.findByLabelText(/shared demo phone number/i)).toHaveTextContent('+31201234567');
+    expect(loadDemoSession()?.experienceSessionId).toBe('expsess_1');
+    expect(sessionStorage.getItem('leadboard_waitlist_confirmation')).toBeNull();
+  });
+
+  it('navigates to waitlist confirmation on waitlisted response', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 201,
+      json: async () => ({
+        status: 'waitlisted',
+        country_name: 'Canada',
+        message: "Thank you for your interest. We'll let you know when the demo is available in your market.",
+      }),
+    });
+
+    const client = new DemoApiClient({ fetchImpl });
+    const user = userEvent.setup();
+    renderQualificationFlowRoutes(client);
+
+    await fillWaitlistForm(user);
+    await user.click(screen.getByRole('button', { name: /^join waitlist$/i }));
+
+    expect(await screen.findByText(/Canada/)).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Thank you' })).toBeInTheDocument();
+    expect(loadDemoSession()).toBeNull();
+  });
+
+  it('navigates to duplicate confirmation on WAITLIST_EMAIL_EXISTS', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 409,
+      json: async () => ({
+        error: {
+          code: 'WAITLIST_EMAIL_EXISTS',
+          message: "You're already on our waitlist.",
+          request_id: 'req_1',
+        },
+      }),
+    });
+
+    const client = new DemoApiClient({ fetchImpl });
+    const user = userEvent.setup();
+    renderQualificationFlowRoutes(client);
+
+    await fillWaitlistForm(user);
+    await user.click(screen.getByRole('button', { name: /^join waitlist$/i }));
+
+    expect(
+      await screen.findByRole('heading', { name: /already on our waitlist/i }),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/Unable to start demo/i)).not.toBeInTheDocument();
+    expect(loadWaitlistConfirmation()).toEqual({
+      version: 1,
+      outcome: 'already_exists',
+      country_name: 'Canada',
+    });
+  });
+
+  it('persists confirmation across refresh', () => {
+    saveWaitlistConfirmation({
+      version: WAITLIST_CONFIRMATION_VERSION,
+      outcome: 'created',
+      country_name: 'Canada',
+    });
+
+    const { rerender } = renderWithRouter(<WaitlistConfirmedPage />, ['/demo/waitlist-confirmed']);
+    expect(screen.getByText(/priority waitlist/i)).toBeInTheDocument();
+
+    rerender(
+      <MemoryRouter initialEntries={['/demo/waitlist-confirmed']}>
+        <WaitlistConfirmedPage />
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByText(/priority waitlist/i)).toBeInTheDocument();
+  });
+
+  it('redirects to qualify when visiting confirmation without state', () => {
+    render(
+      <MemoryRouter initialEntries={['/demo/waitlist-confirmed']}>
+        <Routes>
+          <Route path="/demo/waitlist-confirmed" element={<WaitlistConfirmedPage />} />
+          <Route path="/demo/qualify" element={<div>Qualification entry</div>} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByText('Qualification entry')).toBeInTheDocument();
+  });
+
+  it('stores only version outcome and country_name without PII', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 201,
+      json: async () => ({
+        status: 'waitlisted',
+        country_name: 'Canada',
+        message: "Thank you for your interest. We'll let you know when the demo is available in your market.",
+      }),
+    });
+
+    const client = new DemoApiClient({ fetchImpl });
+    const user = userEvent.setup();
+    renderQualificationFlowRoutes(client);
+
+    await fillWaitlistForm(user);
+    await user.click(screen.getByRole('button', { name: /^join waitlist$/i }));
+
+    await waitFor(() => {
+      expect(sessionStorage.getItem('leadboard_waitlist_confirmation')).not.toBeNull();
+    });
+
+    const stored = JSON.parse(sessionStorage.getItem('leadboard_waitlist_confirmation') ?? '{}');
+    expect(Object.keys(stored).sort()).toEqual(['country_name', 'outcome', 'version']);
+    expect(stored).not.toHaveProperty('email');
+    expect(stored).not.toHaveProperty('phone_number');
+    expect(stored).not.toHaveProperty('full_name');
+  });
+
+  it('clears stale waitlist confirmation when starting a supported demo', async () => {
+    saveWaitlistConfirmation({
+      version: WAITLIST_CONFIRMATION_VERSION,
+      outcome: 'created',
+      country_name: 'Canada',
+    });
+
+    const fetchImpl = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        status: 'started',
+        prospect_id: 'prospect_1',
+        experience_session_id: 'expsess_1',
+        experience_version: 'plumbing_demo_v1',
+        industry_supported: true,
+        session_state: 'waiting_for_call',
+        shared_demo_phone_number: '+31201234567',
+        experience_token: 'token_123',
+        simulate_call_available: true,
+      }),
+    });
+
+    const client = new DemoApiClient({ fetchImpl });
+    const user = userEvent.setup();
+    renderQualificationFlowRoutes(client);
+
+    await user.click(screen.getByRole('radio', { name: /netherlands/i }));
+    await user.type(screen.getByLabelText(/full name/i), 'John Smith');
+    await user.type(screen.getByLabelText(/business name/i), "Joe's Plumbing");
+    await user.type(screen.getByLabelText(/^email$/i), 'john@example.com');
+    await user.type(screen.getByLabelText(/phone number/i), '0646275553');
+    await user.tab();
     await user.type(screen.getByLabelText(/business location/i), 'Amsterdam');
     await user.selectOptions(screen.getByLabelText(/company size/i), '2-5');
     await user.type(screen.getByLabelText(/^website$/i), 'https://example.com');
@@ -108,25 +466,66 @@ describe('QualificationPage', () => {
     await user.click(screen.getByRole('button', { name: /^start interactive demo$/i }));
 
     await waitFor(() => {
-      expect(fetchImpl).toHaveBeenCalled();
+      expect(loadDemoSession()).not.toBeNull();
     });
+    expect(loadWaitlistConfirmation()).toBeNull();
+  });
+
+  it('clears waitlist confirmation when QualificationPage mounts', () => {
+    saveWaitlistConfirmation({
+      version: WAITLIST_CONFIRMATION_VERSION,
+      outcome: 'created',
+      country_name: 'Canada',
+    });
+
+    renderWithRouter(<QualificationPage client={new DemoApiClient({ fetchImpl: vi.fn() })} />, [
+      '/demo/qualify',
+    ]);
+
+    expect(loadWaitlistConfirmation()).toBeNull();
+  });
+
+  it('discards unknown confirmation versions and redirects', () => {
+    sessionStorage.setItem(
+      'leadboard_waitlist_confirmation',
+      JSON.stringify({ version: 99, outcome: 'created', country_name: 'Canada' }),
+    );
+
+    render(
+      <MemoryRouter initialEntries={['/demo/waitlist-confirmed']}>
+        <Routes>
+          <Route path="/demo/waitlist-confirmed" element={<WaitlistConfirmedPage />} />
+          <Route path="/demo/qualify" element={<div>Qualification entry</div>} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByText('Qualification entry')).toBeInTheDocument();
   });
 });
 
 describe('validation helpers', () => {
+  const baseValues = {
+    businessMarket: 'NL' as const,
+    countryName: '',
+    fullName: 'John',
+    businessName: 'Biz',
+    email: 'john@example.com',
+    phoneNumber: '0646275553',
+    phoneE164: null,
+    industry: 'plumbing',
+    businessLocation: 'Amsterdam',
+    companySize: '2-5',
+    website: 'https://example.com',
+    noWebsite: false,
+    biggestChallenge: 'never_miss_calls',
+    implementationTimeframe: 'within_3_months',
+    honeypot: '',
+  };
+
   it('rejects honeypot submissions', () => {
     const result = validateQualificationForm({
-      fullName: 'John',
-      businessName: 'Biz',
-      email: 'john@example.com',
-      phoneNumber: '+31612345678',
-      industry: 'plumbing',
-      businessLocation: 'Amsterdam',
-      companySize: '2-5',
-      website: 'https://example.com',
-      noWebsite: false,
-      biggestChallenge: 'never_miss_calls',
-      implementationTimeframe: 'within_3_months',
+      ...baseValues,
       honeypot: 'spam',
     });
 
@@ -136,21 +535,84 @@ describe('validation helpers', () => {
 
   it('supports no website option', () => {
     const result = validateQualificationForm({
-      fullName: 'John',
-      businessName: 'Biz',
-      email: 'john@example.com',
-      phoneNumber: '+31612345678',
-      industry: 'plumbing',
-      businessLocation: 'Amsterdam',
-      companySize: '2-5',
+      ...baseValues,
       website: '',
       noWebsite: true,
-      biggestChallenge: 'never_miss_calls',
-      implementationTimeframe: 'within_3_months',
-      honeypot: '',
     });
 
     expect(result.valid).toBe(true);
+  });
+
+  it('requires business market selection', () => {
+    const result = validateQualificationForm({
+      ...baseValues,
+      businessMarket: '',
+    });
+
+    expect(result.valid).toBe(false);
+    expect(result.errors.businessMarket).toBeDefined();
+  });
+
+  it('requires country for OTHER market', () => {
+    const result = validateQualificationForm({
+      ...baseValues,
+      businessMarket: 'OTHER',
+      phoneNumber: '',
+    });
+
+    expect(result.valid).toBe(false);
+    expect(result.errors.countryName).toBeDefined();
+  });
+
+  it('rejects country names longer than 100 characters', () => {
+    const result = validateQualificationForm({
+      ...baseValues,
+      businessMarket: 'OTHER',
+      countryName: 'a'.repeat(101),
+      phoneNumber: '',
+    });
+
+    expect(result.valid).toBe(false);
+    expect(result.errors.countryName).toMatch(/100 characters/i);
+  });
+
+  it('rejects invalid phone numbers for supported markets', () => {
+    const result = validateQualificationForm({
+      ...baseValues,
+      phoneNumber: 'not-a-phone',
+    });
+
+    expect(result.valid).toBe(false);
+    expect(result.errors.phoneNumber).toBeDefined();
+  });
+
+  it('returns normalized E.164 for valid supported-market phones', () => {
+    const result = validateQualificationForm(baseValues);
+
+    expect(result.valid).toBe(true);
+    expect(result.normalizedPhoneE164).toBe('+31646275553');
+    expect(result.normalizedPhoneDisplay).toBe('+31 6 46275553');
+  });
+
+  it('clears phone when switching supported markets', () => {
+    const result = applyBusinessMarketChange('US', {
+      phoneNumber: '+31 6 46275553',
+      phoneE164: '+31646275553',
+      countryName: '',
+    });
+
+    expect(result.phoneNumber).toBe('');
+    expect(result.phoneE164).toBeNull();
+  });
+
+  it('clears country when leaving OTHER market', () => {
+    const result = applyBusinessMarketChange('NL', {
+      phoneNumber: '',
+      phoneE164: null,
+      countryName: 'Canada',
+    });
+
+    expect(result.countryName).toBe('');
   });
 });
 
@@ -180,6 +642,18 @@ describe('InstructionsPage', () => {
     expect(screen.getByText(/blocked kitchen sink/i)).toBeInTheDocument();
     expect(screen.getByText(/not a script to read word for word/i)).toBeInTheDocument();
     expect(containsForbiddenScriptLanguage(document.body.textContent ?? '')).toBe(false);
+  });
+
+  it('clears waitlist confirmation when entering the demo flow', () => {
+    saveWaitlistConfirmation({
+      version: WAITLIST_CONFIRMATION_VERSION,
+      outcome: 'created',
+      country_name: 'Canada',
+    });
+
+    renderWithRouter(<InstructionsPage />, ['/demo/instructions']);
+
+    expect(loadWaitlistConfirmation()).toBeNull();
   });
 });
 

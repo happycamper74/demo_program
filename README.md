@@ -8,6 +8,7 @@ The mock MVP includes a public demo website, demo API backend-for-frontend (BFF)
 
 - [docs/00-START-HERE.md](docs/00-START-HERE.md) — architecture and implementation guidance
 - [docs/MOCK-MVP-LAUNCH-LIMITATIONS.md](docs/MOCK-MVP-LAUNCH-LIMITATIONS.md) — known mock MVP limitations
+- [docs/local-demo-startup.md](docs/local-demo-startup.md) — one-command local LeadBoard demo stack
 
 ## Prerequisites
 

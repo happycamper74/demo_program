@@ -4,7 +4,9 @@ export interface StartDemoRequest {
   full_name: string;
   business_name: string;
   email: string;
-  phone_number: string;
+  business_market: 'NL' | 'US' | 'OTHER';
+  country_name?: string;
+  phone_number?: string;
   industry: string;
   business_location: string;
   company_size: string;
@@ -17,7 +19,7 @@ export interface StartDemoRequest {
   challenge_completed?: boolean;
 }
 
-export interface StartDemoResponse {
+export interface StartedDemoResponse {
   status: 'started';
   prospect_id: string;
   experience_session_id: string;
@@ -39,6 +41,16 @@ export interface StartDemoResponse {
     message: string;
   };
 }
+
+export interface WaitlistedResponse {
+  status: 'waitlisted';
+  country_name: string;
+  message: string;
+}
+
+export type StartDemoResponse = StartedDemoResponse | WaitlistedResponse;
+
+export const WAITLIST_EMAIL_EXISTS = 'WAITLIST_EMAIL_EXISTS' as const;
 
 export interface SessionStatusResponse {
   experience_session_id: string;
@@ -142,6 +154,10 @@ export class DemoApiClientError extends Error {
     super(message);
     this.name = 'DemoApiClientError';
   }
+}
+
+export function isWaitlistEmailExistsError(error: unknown): error is DemoApiClientError {
+  return error instanceof DemoApiClientError && error.code === WAITLIST_EMAIL_EXISTS;
 }
 
 export interface DemoApiClientOptions {

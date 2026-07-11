@@ -1,6 +1,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { DemoApiError, internalError } from '../../domain/api-errors.js';
+import { DemoApiError, internalError, waitlistEmailExists } from '../../domain/api-errors.js';
 import type { DemoService } from '../../application/demo-service.js';
+import { WaitlistEmailExistsError } from '@experience-platform/experience-engine/experience-waitlist';
 import type { SessionEventStream } from '../../infrastructure/events/session-event-stream.js';
 import {
   createRequestContext,
@@ -12,6 +13,7 @@ import {
 import { resolveClientIp } from '../../infrastructure/http/client-ip.js';
 import { logUnhandledRequestError } from '../../infrastructure/http/unhandled-request-error.js';
 import type { RecoverSessionRequest, StartDemoRequest, PresentationEvent, BookDiscoveryApiRequest } from '../../types/api.js';
+import { WAITLIST_SUCCESS_MESSAGE } from '../../types/api.js';
 import { isPresentationSafeEventName } from '../../application/presentation-event-mapper.js';
 
 const API_PREFIX = '/api/demo/v1';
@@ -31,11 +33,24 @@ export async function handleDemoApiRequest(
   try {
     if (context.method === 'POST' && context.pathname === `${API_PREFIX}/start`) {
       const body = await readJsonBody<StartDemoRequest>(req);
-      const response = await deps.demoService.startDemo(body, {
+      const outcome = await deps.demoService.startDemo(body, {
         requestId: context.requestId,
         clientIp: resolveClientIp(req),
       });
-      sendJson(res, 200, response, context.requestId);
+      if (outcome.kind === 'started') {
+        sendJson(res, 200, outcome.response, context.requestId);
+      } else {
+        sendJson(
+          res,
+          201,
+          {
+            status: 'waitlisted',
+            country_name: outcome.countryName,
+            message: WAITLIST_SUCCESS_MESSAGE,
+          },
+          context.requestId,
+        );
+      }
       return true;
     }
 
@@ -155,6 +170,11 @@ export async function handleDemoApiRequest(
   } catch (error) {
     if (error instanceof DemoApiError) {
       sendError(res, error, context.requestId);
+      return true;
+    }
+
+    if (error instanceof WaitlistEmailExistsError) {
+      sendError(res, waitlistEmailExists(error.message), context.requestId);
       return true;
     }
 

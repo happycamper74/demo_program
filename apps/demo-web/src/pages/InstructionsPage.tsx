@@ -1,12 +1,17 @@
+import { useEffect } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
 import { PhoneInstructions } from '../components/PhoneInstructions.js';
 import { ScenarioGuidance } from '../components/ScenarioGuidance.js';
 import { Layout, PageCard } from '../components/Layout.js';
-import { loadDemoSession } from '../lib/session-storage.js';
+import { clearWaitlistConfirmation, loadDemoSession } from '../lib/session-storage.js';
 
 export function InstructionsPage() {
   const navigate = useNavigate();
   const session = loadDemoSession();
+
+  useEffect(() => {
+    clearWaitlistConfirmation();
+  }, []);
 
   if (!session) {
     return <Navigate to="/demo/industry" replace />;
