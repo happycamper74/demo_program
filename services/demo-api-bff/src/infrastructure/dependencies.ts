@@ -21,6 +21,10 @@ import {
 import { SqliteExperienceDefinitionRepository } from '@experience-platform/experience-engine/experience-definitions';
 import { SqliteProspectRepository } from '@experience-platform/experience-engine/experience-prospects';
 import {
+  WaitlistService,
+  SqliteWaitlistRepository,
+} from '@experience-platform/experience-engine/experience-waitlist';
+import {
   InMemoryEventPublisher,
   WorkflowOrchestrator,
 } from '@experience-platform/workflow-orchestrator/orchestrator';
@@ -98,6 +102,7 @@ export function createDemoApiDependencies(options?: {
   leadboardSharedDemoOrgId?: string;
   leadboardSharedDemoPhoneNumber?: string;
   statusPollIntervalMs?: number;
+  waitlistService?: WaitlistService;
 }): DemoApiDependencies {
   const runtime = resolveDemoApiRuntimeOptions(options);
   const database = createDatabase({ filePath: runtime.databasePath });
@@ -117,6 +122,8 @@ export function createDemoApiDependencies(options?: {
 
   const experienceDefinitionService = new ExperienceDefinitionService(definitionRepository, logger);
   const prospectService = new ProspectService(prospectRepository, logger);
+  const waitlistRepository = new SqliteWaitlistRepository(database);
+  const waitlistService = options?.waitlistService ?? new WaitlistService(waitlistRepository, logger);
   const experienceSessionService = new ExperienceSessionService(
     sessionRepository,
     prospectRepository,
@@ -153,6 +160,7 @@ export function createDemoApiDependencies(options?: {
 
   const deps: DemoServiceDependencies = {
     prospectService,
+    waitlistService,
     experienceDefinitionService,
     experienceSessionService,
     experienceSessionRepository: sessionRepository,

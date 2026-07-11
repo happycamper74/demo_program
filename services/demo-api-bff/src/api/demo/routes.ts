@@ -31,11 +31,15 @@ export async function handleDemoApiRequest(
   try {
     if (context.method === 'POST' && context.pathname === `${API_PREFIX}/start`) {
       const body = await readJsonBody<StartDemoRequest>(req);
-      const response = await deps.demoService.startDemo(body, {
+      const outcome = await deps.demoService.startDemo(body, {
         requestId: context.requestId,
         clientIp: resolveClientIp(req),
       });
-      sendJson(res, 200, response, context.requestId);
+      if (outcome.kind === 'started') {
+        sendJson(res, 200, outcome.response, context.requestId);
+      } else {
+        throw internalError();
+      }
       return true;
     }
 

@@ -23,6 +23,11 @@ import {
 import type { ExperienceDefinitionService } from '@experience-platform/experience-engine/experience-definitions';
 import type { ProspectService } from '@experience-platform/experience-engine/experience-prospects';
 import type {
+  CreateWaitlistSubmissionInput,
+  WaitlistService,
+} from '@experience-platform/experience-engine/experience-waitlist';
+import type { DemoStartSecurityResult } from '@experience-platform/demo-security';
+import type {
   ExperienceSessionRepository,
   ExperienceSessionService,
 } from '@experience-platform/experience-engine/experience-sessions';
@@ -93,6 +98,7 @@ export interface DemoServiceLogger {
 
 export interface DemoServiceDependencies {
   readonly prospectService: ProspectService;
+  readonly waitlistService: WaitlistService;
   readonly experienceDefinitionService: ExperienceDefinitionService;
   readonly experienceSessionService: ExperienceSessionService;
   readonly experienceSessionRepository: ExperienceSessionRepository;
@@ -114,6 +120,19 @@ export interface StartDemoRequestContext {
   readonly requestId: string;
   readonly clientIp: string;
 }
+
+export interface StartedDemoOutcome {
+  readonly kind: 'started';
+  readonly response: StartDemoResponse;
+}
+
+export interface WaitlistedOutcome {
+  readonly kind: 'waitlisted';
+  readonly waitlistEntryId: string;
+  readonly countryName: string;
+}
+
+export type StartDemoOutcome = StartedDemoOutcome | WaitlistedOutcome;
 
 function normalizeIndustry(value: string): string {
   return value.trim().toLowerCase();
@@ -187,6 +206,23 @@ function validateStartDemoRequest(request: StartDemoRequest): StartDemoValidatio
   return { phoneE164: phoneResult.e164 };
 }
 
+function buildWaitlistSubmissionInput(request: StartDemoRequest): CreateWaitlistSubmissionInput {
+  return {
+    fullName: request.full_name,
+    businessName: request.business_name,
+    email: request.email,
+    countryName: request.country_name?.trim() ?? '',
+    businessLocation: request.business_location,
+    industry: request.industry,
+    companySize: request.company_size,
+    website: request.no_website ? null : (request.website ?? null),
+    noWebsite: request.no_website ?? false,
+    biggestChallenge: request.biggest_challenge,
+    implementationTimeframe: request.implementation_timeframe,
+    clientContext: request.client_context ?? null,
+  };
+}
+
 function buildProspectUpsertInput(
   request: StartDemoRequest,
   phoneE164: string | null,
@@ -226,35 +262,53 @@ export class DemoService {
   async startDemo(
     request: StartDemoRequest,
     context: StartDemoRequestContext,
-  ): Promise<StartDemoResponse> {
+  ): Promise<StartDemoOutcome> {
     const { phoneE164 } = validateStartDemoRequest(request);
-    const guardPhoneNumber = phoneE164 ?? request.phone_number ?? '';
 
-    const securityResult = this.deps.demoStartGuard.evaluate({
+    if (request.business_market === 'OTHER') {
+      return this.startWaitlistDemo(request, context);
+    }
+
+    return this.startSupportedMarketDemo(request, context, phoneE164!);
+  }
+
+  private async startWaitlistDemo(
+    request: StartDemoRequest,
+    context: StartDemoRequestContext,
+  ): Promise<WaitlistedOutcome> {
+    const emailNormalized = request.email.trim().toLowerCase();
+
+    const securityResult = this.deps.demoStartGuard.evaluateWaitlist({
       clientIp: context.clientIp,
-      email: request.email,
-      phoneNumber: guardPhoneNumber,
+      emailNormalized,
       honeypotValue: request.company_website_url,
       challengeCompleted: request.challenge_completed ?? false,
     });
 
-    this.safeLogger.info('demo.start.security_evaluated', {
-      request_id: context.requestId,
-      client_ip: context.clientIp,
-      outcome: securityResult.outcome,
+    this.applyGuardOutcome(securityResult, context);
+
+    const entry = await this.deps.waitlistService.create(buildWaitlistSubmissionInput(request));
+    return {
+      kind: 'waitlisted',
+      waitlistEntryId: entry.id,
+      countryName: entry.countryName,
+    };
+  }
+
+  private async startSupportedMarketDemo(
+    request: StartDemoRequest,
+    context: StartDemoRequestContext,
+    phoneE164: string,
+  ): Promise<StartedDemoOutcome> {
+    const securityResult = this.deps.demoStartGuard.evaluate({
+      clientIp: context.clientIp,
+      email: request.email,
+      phoneNumber: phoneE164,
+      honeypotValue: request.company_website_url,
+      challengeCompleted: request.challenge_completed ?? false,
     });
 
-    if (securityResult.outcome === 'block') {
-      throw demoStartUnavailable();
-    }
-
-    if (securityResult.outcome === 'challenge') {
-      throw challengeRequired();
-    }
-
-    if (securityResult.outcome === 'redirect_discovery') {
-      throw highRiskRedirect();
-    }
+    this.applyGuardOutcome(securityResult, context);
 
     const definition = await this.deps.experienceDefinitionService.getById(
       request.experience_definition_id,
@@ -370,23 +424,52 @@ export class DemoService {
 
     if (industrySupported) {
       return {
-        ...response,
-        instructions: {
-          title: 'Your interactive demo is ready',
-          message: 'Call the number below from the phone number you used to register.',
-          scenario_examples: [...definition.scenario.examples],
+        kind: 'started',
+        response: {
+          ...response,
+          instructions: {
+            title: 'Your interactive demo is ready',
+            message: 'Call the number below from the phone number you used to register.',
+            scenario_examples: [...definition.scenario.examples],
+          },
         },
       };
     }
 
     return {
-      ...response,
-      industry_notice: {
-        title: 'LeadBoard is currently optimized for plumbing businesses',
-        message:
-          'You are welcome to try the interactive demo. The example call uses a plumbing scenario, but it demonstrates the AI call handling, transcript, lead creation, and automation workflow that could power future industry editions.',
+      kind: 'started',
+      response: {
+        ...response,
+        industry_notice: {
+          title: 'LeadBoard is currently optimized for plumbing businesses',
+          message:
+            'You are welcome to try the interactive demo. The example call uses a plumbing scenario, but it demonstrates the AI call handling, transcript, lead creation, and automation workflow that could power future industry editions.',
+        },
       },
     };
+  }
+
+  private applyGuardOutcome(
+    securityResult: DemoStartSecurityResult,
+    context: StartDemoRequestContext,
+  ): void {
+    this.safeLogger.info('demo.start.security_evaluated', {
+      request_id: context.requestId,
+      client_ip: context.clientIp,
+      outcome: securityResult.outcome,
+    });
+
+    if (securityResult.outcome === 'block') {
+      throw demoStartUnavailable();
+    }
+
+    if (securityResult.outcome === 'challenge') {
+      throw challengeRequired();
+    }
+
+    if (securityResult.outcome === 'redirect_discovery') {
+      throw highRiskRedirect();
+    }
   }
 
   async getSessionStatus(

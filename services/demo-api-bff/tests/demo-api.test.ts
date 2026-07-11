@@ -3,7 +3,7 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   ExperienceDefinitionService,
   SqliteExperienceDefinitionRepository,
@@ -16,7 +16,16 @@ import {
   createDatabase,
 } from '@experience-platform/experience-engine/experience-sessions';
 import { MockLeadBoardClient } from '@experience-platform/leadboard-client';
+import {
+  SqliteWaitlistRepository,
+  WaitlistEmailExistsError,
+  WaitlistService,
+} from '@experience-platform/experience-engine/experience-waitlist';
 import type { CreateExperienceDefinitionInput } from '@experience-platform/shared-types';
+import {
+  DemoService,
+  type DemoServiceDependencies,
+} from '../src/application/demo-service.js';
 import { createHandleRequest } from '../src/http.js';
 import { createDemoApiDependencies } from '../src/infrastructure/dependencies.js';
 import { createPermissiveDemoStartGuard } from './test-security-helpers.js';
@@ -221,23 +230,6 @@ describe('demo-api-bff demo routes', () => {
 
     expect(response.statusCode).toBe(400);
     expect(JSON.parse(response.chunks.join('')).error.code).toBe('VALIDATION_FAILED');
-  });
-
-  it('ignores stale phone_number when validating OTHER market shape', async () => {
-    const request = createJsonRequest('POST', '/api/demo/v1/start', {
-      ...validStartRequest,
-      business_market: 'OTHER',
-      country_name: 'Canada',
-      phone_number: '+31646275553',
-      experience_definition_id: 'expdef_plumbing_demo_v1',
-    });
-    const response = createMockResponse();
-
-    await handleRequest(request, response);
-
-    expect(response.statusCode).not.toBe(400);
-    const body = JSON.parse(response.chunks.join(''));
-    expect(body.error?.code).not.toBe('VALIDATION_FAILED');
   });
 
   it('stores normalized E.164 phone and business_market for NL submissions', async () => {
@@ -610,5 +602,201 @@ describe('demo-api-bff demo routes', () => {
     expect(booked.status).toBe('booked');
     expect(booked.confirmation.email_sent).toBe(true);
     expect(booked.confirmation.sms_sent).toBe(true);
+  });
+});
+
+const otherStartRequest: StartDemoRequest = {
+  ...validStartRequest,
+  business_market: 'OTHER',
+  country_name: 'Canada',
+  phone_number: undefined,
+};
+
+function createMockDemoServiceDependencies(
+  overrides: Partial<DemoServiceDependencies> = {},
+): DemoServiceDependencies {
+  const logger = { info: vi.fn(), warn: vi.fn() };
+  return {
+    prospectService: { upsert: vi.fn() } as unknown as DemoServiceDependencies['prospectService'],
+    waitlistService: { create: vi.fn() } as unknown as DemoServiceDependencies['waitlistService'],
+    experienceDefinitionService: {
+      getById: vi.fn(),
+    } as unknown as DemoServiceDependencies['experienceDefinitionService'],
+    experienceSessionService: {
+      create: vi.fn(),
+      updateLeadboardReferences: vi.fn(),
+    } as unknown as DemoServiceDependencies['experienceSessionService'],
+    experienceSessionRepository: {
+      findCompletedByProspectAndDefinition: vi.fn().mockResolvedValue(null),
+    } as unknown as DemoServiceDependencies['experienceSessionRepository'],
+    workflowOrchestrator: {} as DemoServiceDependencies['workflowOrchestrator'],
+    leadBoardClient: {
+      createDemoSessionMirror: vi.fn(),
+    } as unknown as DemoServiceDependencies['leadBoardClient'],
+    experienceTokenService: {
+      createToken: vi.fn(),
+    } as unknown as DemoServiceDependencies['experienceTokenService'],
+    sessionEventStream: {
+      publish: vi.fn(),
+    } as unknown as DemoServiceDependencies['sessionEventStream'],
+    discoveryBookingService: {} as DemoServiceDependencies['discoveryBookingService'],
+    analyticsService: {
+      recordEvent: vi.fn(),
+    } as unknown as DemoServiceDependencies['analyticsService'],
+    demoStartGuard: {
+      evaluate: vi.fn().mockReturnValue({ outcome: 'allow', riskLevel: 'low' }),
+      evaluateWaitlist: vi.fn().mockReturnValue({ outcome: 'allow', riskLevel: 'low' }),
+    } as unknown as DemoServiceDependencies['demoStartGuard'],
+    logger,
+    leadboardAdapterMode: 'mock',
+    leadboardSharedDemoOrgId: 'org_demo',
+    leadboardSharedDemoPhoneNumber: '+31201234567',
+    realModeStatusPoller: {
+      trackSession: vi.fn(),
+    } as unknown as DemoServiceDependencies['realModeStatusPoller'],
+    ...overrides,
+  };
+}
+
+describe('DemoService startDemo market branching', () => {
+  it('returns waitlisted outcome for OTHER without demo side effects', async () => {
+    const waitlistCreate = vi.fn().mockResolvedValue({
+      id: 'waitlist_123',
+      countryName: 'Canada',
+    });
+    const prospectUpsert = vi.fn();
+    const evaluate = vi.fn();
+    const evaluateWaitlist = vi.fn().mockReturnValue({ outcome: 'allow', riskLevel: 'low' });
+    const createMirror = vi.fn();
+    const publish = vi.fn();
+    const trackSession = vi.fn();
+
+    const service = new DemoService(
+      createMockDemoServiceDependencies({
+        waitlistService: { create: waitlistCreate } as unknown as WaitlistService,
+        prospectService: { upsert: prospectUpsert } as unknown as DemoServiceDependencies['prospectService'],
+        demoStartGuard: { evaluate, evaluateWaitlist } as unknown as DemoServiceDependencies['demoStartGuard'],
+        leadBoardClient: { createDemoSessionMirror: createMirror } as unknown as DemoServiceDependencies['leadBoardClient'],
+        sessionEventStream: { publish } as unknown as DemoServiceDependencies['sessionEventStream'],
+        realModeStatusPoller: { trackSession } as unknown as DemoServiceDependencies['realModeStatusPoller'],
+      }),
+    );
+
+    const outcome = await service.startDemo(
+      {
+        ...otherStartRequest,
+        client_context: { referrer: 'test' },
+      },
+      { requestId: 'req-1', clientIp: '127.0.0.1' },
+    );
+
+    expect(outcome).toEqual({
+      kind: 'waitlisted',
+      waitlistEntryId: 'waitlist_123',
+      countryName: 'Canada',
+    });
+    expect(waitlistCreate).toHaveBeenCalledWith({
+      fullName: otherStartRequest.full_name,
+      businessName: otherStartRequest.business_name,
+      email: otherStartRequest.email,
+      countryName: 'Canada',
+      businessLocation: otherStartRequest.business_location,
+      industry: otherStartRequest.industry,
+      companySize: otherStartRequest.company_size,
+      website: otherStartRequest.website ?? null,
+      noWebsite: false,
+      biggestChallenge: otherStartRequest.biggest_challenge,
+      implementationTimeframe: otherStartRequest.implementation_timeframe,
+      clientContext: { referrer: 'test' },
+    });
+    expect(evaluateWaitlist).toHaveBeenCalledWith({
+      clientIp: '127.0.0.1',
+      emailNormalized: otherStartRequest.email.toLowerCase(),
+      honeypotValue: undefined,
+      challengeCompleted: false,
+    });
+    expect(evaluate).not.toHaveBeenCalled();
+    expect(prospectUpsert).not.toHaveBeenCalled();
+    expect(createMirror).not.toHaveBeenCalled();
+    expect(publish).not.toHaveBeenCalled();
+    expect(trackSession).not.toHaveBeenCalled();
+  });
+
+  it('ignores stale phone_number on OTHER and uses waitlist guard only', async () => {
+    const evaluate = vi.fn();
+    const evaluateWaitlist = vi.fn().mockReturnValue({ outcome: 'allow', riskLevel: 'low' });
+    const waitlistCreate = vi.fn().mockResolvedValue({
+      id: 'waitlist_456',
+      countryName: 'Canada',
+    });
+
+    const service = new DemoService(
+      createMockDemoServiceDependencies({
+        waitlistService: { create: waitlistCreate } as unknown as WaitlistService,
+        demoStartGuard: { evaluate, evaluateWaitlist } as unknown as DemoServiceDependencies['demoStartGuard'],
+      }),
+    );
+
+    await service.startDemo(
+      {
+        ...otherStartRequest,
+        phone_number: '+31646275553',
+      },
+      { requestId: 'req-2', clientIp: '127.0.0.1' },
+    );
+
+    expect(evaluate).not.toHaveBeenCalled();
+    expect(evaluateWaitlist).toHaveBeenCalled();
+    expect(waitlistCreate.mock.calls[0]?.[0]).not.toHaveProperty('phoneNumber');
+    expect(waitlistCreate.mock.calls[0]?.[0]).not.toHaveProperty('phone_number');
+  });
+
+  it('propagates WaitlistEmailExistsError unchanged on duplicate submissions', async () => {
+    const waitlistCreate = vi
+      .fn()
+      .mockRejectedValue(new WaitlistEmailExistsError('john@example.com'));
+
+    const service = new DemoService(
+      createMockDemoServiceDependencies({
+        waitlistService: { create: waitlistCreate } as unknown as WaitlistService,
+      }),
+    );
+
+    await expect(
+      service.startDemo(otherStartRequest, { requestId: 'req-3', clientIp: '127.0.0.1' }),
+    ).rejects.toBeInstanceOf(WaitlistEmailExistsError);
+  });
+
+  it('persists OTHER submissions to waitlist without prospect or session rows', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'demo-api-bff-waitlist-'));
+    const databasePath = join(tempDir, `${randomUUID()}.sqlite`);
+    const database = createDatabase({ filePath: databasePath });
+    const email = `waitlist-${randomUUID()}@example.com`;
+
+    const deps = createDemoApiDependencies({
+      databasePath,
+      signingSecret: 'demo-api-bff-test-secret',
+      demoStartGuard: createPermissiveDemoStartGuard(),
+    });
+
+    const outcome = await deps.demoService.startDemo(
+      {
+        ...otherStartRequest,
+        email,
+        experience_definition_id: 'expdef_plumbing_demo_v1',
+      },
+      { requestId: 'req-4', clientIp: '127.0.0.1' },
+    );
+
+    expect(outcome.kind).toBe('waitlisted');
+
+    const waitlistRepository = new SqliteWaitlistRepository(database);
+    const waitlistService = new WaitlistService(waitlistRepository, { info: () => undefined });
+    const waitlistEntry = await waitlistService.findByEmailNormalized(email.toLowerCase());
+    expect(waitlistEntry?.countryName).toBe('Canada');
+    expect(waitlistEntry).not.toHaveProperty('phoneNumber');
+
+    const prospectRepository = new SqliteProspectRepository(database);
+    expect(await prospectRepository.findByEmail(email)).toBeNull();
   });
 });

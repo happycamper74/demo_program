@@ -11,6 +11,7 @@ export {
 export type {
   DemoStartGuardOutcome,
   DemoStartSecurityInput,
+  WaitlistStartSecurityInput,
   DemoStartSecurityResult,
   RateLimitCheckResult,
   RateLimitConfig,

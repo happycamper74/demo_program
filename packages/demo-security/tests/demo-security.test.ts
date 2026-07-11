@@ -151,6 +151,140 @@ describe('DemoStartGuard', () => {
     expect(guard.evaluate(base).outcome).toBe('redirect_discovery');
     expect(guard.evaluate(base).outcome).toBe('block');
   });
+
+  it('blocks waitlist honeypot submissions with critical risk', () => {
+    const guard = new DemoStartGuard();
+    const result = guard.evaluateWaitlist({
+      clientIp: '127.0.0.1',
+      emailNormalized: 'test@example.com',
+      honeypotValue: 'spam',
+    });
+
+    expect(result.outcome).toBe('block');
+    expect(result.riskLevel).toBe('critical');
+  });
+
+  it('rate limits waitlist by IP', () => {
+    const rateLimiter = new InMemoryRateLimiter();
+    const guard = new DemoStartGuard({
+      rateLimiter,
+      config: {
+        rateLimits: {
+          ipMax: 2,
+          ipWindowMs: 60_000,
+          emailMax: 20,
+          emailWindowMs: 60_000,
+          phoneMax: 20,
+          phoneWindowMs: 60_000,
+        },
+        riskThresholds: {
+          mediumIpAttempts: 10,
+          highIpAttempts: 10,
+          criticalIpAttempts: 10,
+          mediumEmailAttempts: 10,
+          highEmailAttempts: 10,
+          criticalEmailAttempts: 10,
+          mediumPhoneAttempts: 10,
+          highPhoneAttempts: 10,
+          criticalPhoneAttempts: 10,
+        },
+      },
+    });
+
+    const input = {
+      clientIp: '203.0.113.20',
+      emailNormalized: 'waitlist-a@example.com',
+    };
+
+    expect(guard.evaluateWaitlist(input).outcome).toBe('allow');
+    expect(guard.evaluateWaitlist(input).outcome).toBe('allow');
+    expect(guard.evaluateWaitlist(input).outcome).toBe('block');
+  });
+
+  it('rate limits waitlist by normalized email without phone keys', () => {
+    const rateLimiter = new InMemoryRateLimiter();
+    const guard = new DemoStartGuard({
+      rateLimiter,
+      config: {
+        rateLimits: {
+          ipMax: 50,
+          ipWindowMs: 60_000,
+          emailMax: 1,
+          emailWindowMs: 60_000,
+          phoneMax: 1,
+          phoneWindowMs: 60_000,
+        },
+        riskThresholds: {
+          mediumIpAttempts: 10,
+          highIpAttempts: 10,
+          criticalIpAttempts: 10,
+          mediumEmailAttempts: 10,
+          highEmailAttempts: 10,
+          criticalEmailAttempts: 10,
+          mediumPhoneAttempts: 10,
+          highPhoneAttempts: 10,
+          criticalPhoneAttempts: 10,
+        },
+      },
+    });
+
+    const first = guard.evaluateWaitlist({
+      clientIp: '1.1.1.1',
+      emailNormalized: 'same@example.com',
+    });
+    const blockedByEmail = guard.evaluateWaitlist({
+      clientIp: '2.2.2.2',
+      emailNormalized: 'same@example.com',
+    });
+    const notBlockedByPhone = guard.evaluateWaitlist({
+      clientIp: '3.3.3.3',
+      emailNormalized: 'other@example.com',
+    });
+
+    expect(first.outcome).toBe('allow');
+    expect(blockedByEmail.outcome).toBe('block');
+    expect(notBlockedByPhone.outcome).toBe('allow');
+  });
+
+  it('returns waitlist adaptive responses without phone contribution', () => {
+    const rateLimiter = new InMemoryRateLimiter();
+    const guard = new DemoStartGuard({
+      rateLimiter,
+      config: {
+        rateLimits: {
+          ipMax: 20,
+          ipWindowMs: 60_000,
+          emailMax: 20,
+          emailWindowMs: 60_000,
+          phoneMax: 20,
+          phoneWindowMs: 60_000,
+        },
+        riskThresholds: {
+          mediumIpAttempts: 2,
+          highIpAttempts: 4,
+          criticalIpAttempts: 6,
+          mediumEmailAttempts: 99,
+          highEmailAttempts: 99,
+          criticalEmailAttempts: 99,
+          mediumPhoneAttempts: 99,
+          highPhoneAttempts: 99,
+          criticalPhoneAttempts: 99,
+        },
+      },
+    });
+
+    const base = {
+      clientIp: '198.51.100.5',
+      emailNormalized: 'waitlist-risk@example.com',
+    };
+
+    expect(guard.evaluateWaitlist(base).outcome).toBe('allow');
+    expect(guard.evaluateWaitlist(base).outcome).toBe('challenge');
+    expect(guard.evaluateWaitlist({ ...base, challengeCompleted: true }).outcome).toBe('allow');
+    expect(guard.evaluateWaitlist(base).outcome).toBe('redirect_discovery');
+    expect(guard.evaluateWaitlist(base).outcome).toBe('redirect_discovery');
+    expect(guard.evaluateWaitlist(base).outcome).toBe('block');
+  });
 });
 
 describe('safe logging', () => {

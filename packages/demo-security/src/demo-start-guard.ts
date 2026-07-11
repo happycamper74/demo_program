@@ -1,4 +1,10 @@
-import type { DemoStartSecurityInput, DemoStartSecurityResult, RiskLevel, RiskThresholdConfig } from './types.js';
+import type {
+  DemoStartSecurityInput,
+  DemoStartSecurityResult,
+  RiskLevel,
+  RiskThresholdConfig,
+  WaitlistStartSecurityInput,
+} from './types.js';
 import { isHoneypotFilled } from './honeypot.js';
 import { InMemoryRateLimiter } from './rate-limiter.js';
 import type { RateLimitConfig } from './types.js';
@@ -51,18 +57,53 @@ export class DemoStartGuard {
       this.riskThresholds,
     );
 
-    switch (riskLevel) {
-      case 'critical':
-        return { outcome: 'block', riskLevel };
-      case 'high':
-        return { outcome: 'redirect_discovery', riskLevel };
-      case 'medium':
-        return input.challengeCompleted
-          ? { outcome: 'allow', riskLevel: 'low' }
-          : { outcome: 'challenge', riskLevel };
-      default:
-        return { outcome: 'allow', riskLevel: 'low' };
+    return mapRiskLevelToOutcome(riskLevel, input.challengeCompleted ?? false);
+  }
+
+  evaluateWaitlist(input: WaitlistStartSecurityInput): DemoStartSecurityResult {
+    if (isHoneypotFilled(input.honeypotValue)) {
+      return { outcome: 'block', riskLevel: 'critical' };
     }
+
+    const ipKey = `ip:${normalizeKey(input.clientIp)}`;
+    const emailKey = `email:${normalizeKey(input.emailNormalized)}`;
+
+    const ipCount = this.rateLimiter.record(ipKey, this.rateLimits.ipWindowMs);
+    const emailCount = this.rateLimiter.record(emailKey, this.rateLimits.emailWindowMs);
+
+    if (ipCount > this.rateLimits.ipMax || emailCount > this.rateLimits.emailMax) {
+      return { outcome: 'block', riskLevel: 'critical' };
+    }
+
+    const riskLevel = assessRiskLevel(
+      {
+        ipCount,
+        emailCount,
+        phoneCount: 0,
+        challengeCompleted: input.challengeCompleted ?? false,
+      },
+      this.riskThresholds,
+    );
+
+    return mapRiskLevelToOutcome(riskLevel, input.challengeCompleted ?? false);
+  }
+}
+
+function mapRiskLevelToOutcome(
+  riskLevel: RiskLevel,
+  challengeCompleted: boolean,
+): DemoStartSecurityResult {
+  switch (riskLevel) {
+    case 'critical':
+      return { outcome: 'block', riskLevel };
+    case 'high':
+      return { outcome: 'redirect_discovery', riskLevel };
+    case 'medium':
+      return challengeCompleted
+        ? { outcome: 'allow', riskLevel: 'low' }
+        : { outcome: 'challenge', riskLevel };
+    default:
+      return { outcome: 'allow', riskLevel: 'low' };
   }
 }
 
