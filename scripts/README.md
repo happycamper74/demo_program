@@ -1,5 +1,8 @@
 # Scripts
 
-Placeholder for shared development and operational scripts.
+Shared development and operational scripts.
 
-Future scripts may include local environment bootstrap, database tooling, and deployment helpers.
+- [local-demo-startup.md](../docs/local-demo-startup.md) — foreground launcher for the full local LeadBoard demo stack
+- `start-local-demo.sh` — start all services (`./scripts/start-local-demo.sh`)
+- `check-local-demo.sh` — health checks without starting or stopping processes
+- `production-readiness-check.ts` — mock MVP readiness verification
