@@ -32,6 +32,7 @@ const baseStartRequest: StartDemoRequest = {
   full_name: 'Security User',
   business_name: 'Secure Plumbing',
   email: 'secure@example.com',
+  business_market: 'NL',
   phone_number: '+31612345670',
   industry: 'plumbing',
   business_location: 'Amsterdam',
@@ -240,7 +241,7 @@ describe('demo-api-bff security', () => {
 
     const ip = '198.51.100.77';
     const headers = { 'x-forwarded-for': ip };
-    let phoneCounter = 7000;
+    let phoneCounter = 600;
     const makeRequest = (challengeCompleted = false) =>
       createJsonRequest(
         'POST',
@@ -248,7 +249,7 @@ describe('demo-api-bff security', () => {
         {
           ...baseStartRequest,
           email: `adaptive-${randomUUID()}@example.com`,
-          phone_number: `+31612${phoneCounter++}`,
+          phone_number: `+31612345${phoneCounter++}`,
           challenge_completed: challengeCompleted,
         },
         headers,
@@ -271,6 +272,83 @@ describe('demo-api-bff security', () => {
     await adaptiveHandler(makeRequest(), fourth);
     expect(fourth.statusCode).toBe(403);
     expect(JSON.parse(fourth.chunks.join('')).error.action).toBe('book_discovery');
+  });
+
+  it('rate limits equivalent NL phone formats after normalization', async () => {
+    const adaptiveLimiter = new InMemoryRateLimiter();
+    const tempDir = mkdtempSync(join(tmpdir(), 'demo-api-bff-normalized-phone-'));
+    const adaptiveDatabasePath = join(tempDir, `${randomUUID()}.sqlite`);
+    const adaptiveAnalyticsPath = join(tempDir, `${randomUUID()}-analytics.sqlite`);
+    await seedActiveDefinition(adaptiveDatabasePath);
+
+    const adaptiveHandler = createHandleRequest(
+      createDemoApiDependencies({
+        databasePath: adaptiveDatabasePath,
+        analyticsDatabasePath: adaptiveAnalyticsPath,
+        signingSecret: 'demo-api-bff-test-secret',
+        demoStartGuard: new DemoStartGuard({
+          rateLimiter: adaptiveLimiter,
+          config: {
+            rateLimits: {
+              ipMax: 20,
+              ipWindowMs: 60_000,
+              emailMax: 20,
+              emailWindowMs: 60_000,
+              phoneMax: 1,
+              phoneWindowMs: 60_000,
+            },
+            riskThresholds: {
+              mediumIpAttempts: 99,
+              highIpAttempts: 99,
+              criticalIpAttempts: 99,
+              mediumEmailAttempts: 99,
+              highEmailAttempts: 99,
+              criticalEmailAttempts: 99,
+              mediumPhoneAttempts: 99,
+              highPhoneAttempts: 99,
+              criticalPhoneAttempts: 99,
+            },
+          },
+        }),
+      }),
+    );
+
+    const ip = '203.0.113.88';
+    const headers = { 'x-forwarded-for': ip };
+    const email = (index: number) => `normalized-phone-${index}-${randomUUID()}@example.com`;
+
+    const first = createMockResponse();
+    await adaptiveHandler(
+      createJsonRequest(
+        'POST',
+        '/api/demo/v1/start',
+        {
+          ...baseStartRequest,
+          email: email(1),
+          phone_number: '0646275553',
+        },
+        headers,
+      ),
+      first,
+    );
+    expect(first.statusCode).toBe(200);
+
+    const second = createMockResponse();
+    await adaptiveHandler(
+      createJsonRequest(
+        'POST',
+        '/api/demo/v1/start',
+        {
+          ...baseStartRequest,
+          email: email(2),
+          phone_number: '+31 6 46275553',
+        },
+        headers,
+      ),
+      second,
+    );
+    expect(second.statusCode).toBe(403);
+    expect(JSON.parse(second.chunks.join('')).error.code).toBe('DEMO_START_UNAVAILABLE');
   });
 
   it('redacts tokens in security logs', () => {

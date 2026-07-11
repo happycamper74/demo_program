@@ -91,6 +91,7 @@ function buildStartRequest(overrides: Partial<StartDemoRequest> = {}): StartDemo
     full_name: 'E2E User',
     business_name: 'E2E Plumbing',
     email: `e2e-${randomUUID()}@example.com`,
+    business_market: 'NL',
     phone_number: `+31612${Math.floor(Math.random() * 1_000_000)}`,
     industry: 'plumbing',
     business_location: 'Amsterdam',

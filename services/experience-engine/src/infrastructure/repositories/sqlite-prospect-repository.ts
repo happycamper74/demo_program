@@ -3,7 +3,7 @@
  * Business logic depends on ProspectRepository, not this implementation.
  */
 import type Database from 'better-sqlite3';
-import type { Prospect } from '@experience-platform/shared-types';
+import type { DemoMarket, Prospect } from '@experience-platform/shared-types';
 import type { ProspectRepository } from '../../repositories/prospect-repository.js';
 
 interface ProspectRow {
@@ -12,6 +12,7 @@ interface ProspectRow {
   business_name: string;
   email: string;
   phone_number: string;
+  business_market: DemoMarket | null | undefined;
   industry: string;
   business_location: string;
   company_size: string;
@@ -30,6 +31,7 @@ function mapRowToProspect(row: ProspectRow): Prospect {
     businessName: row.business_name,
     email: row.email,
     phoneNumber: row.phone_number,
+    businessMarket: row.business_market ?? null,
     industry: row.industry,
     businessLocation: row.business_location,
     companySize: row.company_size,
@@ -54,6 +56,7 @@ export class SqliteProspectRepository implements ProspectRepository {
           business_name,
           email,
           phone_number,
+          business_market,
           industry,
           business_location,
           company_size,
@@ -63,7 +66,7 @@ export class SqliteProspectRepository implements ProspectRepository {
           current_status,
           created_at,
           updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         prospect.prospectId,
@@ -71,6 +74,7 @@ export class SqliteProspectRepository implements ProspectRepository {
         prospect.businessName,
         prospect.email,
         prospect.phoneNumber,
+        prospect.businessMarket,
         prospect.industry,
         prospect.businessLocation,
         prospect.companySize,
@@ -93,6 +97,7 @@ export class SqliteProspectRepository implements ProspectRepository {
              business_name = ?,
              email = ?,
              phone_number = ?,
+             business_market = ?,
              industry = ?,
              business_location = ?,
              company_size = ?,
@@ -107,6 +112,7 @@ export class SqliteProspectRepository implements ProspectRepository {
         prospect.businessName,
         prospect.email,
         prospect.phoneNumber,
+        prospect.businessMarket,
         prospect.industry,
         prospect.businessLocation,
         prospect.companySize,

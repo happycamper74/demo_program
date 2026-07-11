@@ -9,6 +9,7 @@ const prospectInput: UpsertProspectInput = {
   businessName: "Joe's Plumbing",
   email: 'john@example.com',
   phoneNumber: '+31612345678',
+  businessMarket: 'NL',
   industry: 'plumbing',
   businessLocation: 'Amsterdam, Netherlands',
   companySize: '2-5',
@@ -30,6 +31,7 @@ describe('ProspectService', () => {
 
     expect(created.prospectId).toMatch(/^prospect_/);
     expect(created.email).toBe(prospectInput.email);
+    expect(created.businessMarket).toBe('NL');
   });
 
   it('updates an existing prospect matched by email', async () => {
@@ -47,6 +49,21 @@ describe('ProspectService', () => {
     expect(updated.businessName).toBe('Smith Plumbing');
   });
 
+  it('updates phone_number and business_market on email match', async () => {
+    const service = createService();
+    const created = await service.upsert(prospectInput);
+
+    const updated = await service.upsert({
+      ...prospectInput,
+      phoneNumber: '+14155552671',
+      businessMarket: 'US',
+    });
+
+    expect(updated.prospectId).toBe(created.prospectId);
+    expect(updated.phoneNumber).toBe('+14155552671');
+    expect(updated.businessMarket).toBe('US');
+  });
+
   it('finds prospects by email and phone number', async () => {
     const service = createService();
     const created = await service.upsert(prospectInput);
@@ -56,6 +73,41 @@ describe('ProspectService', () => {
 
     expect(byEmail?.prospectId).toBe(created.prospectId);
     expect(byPhone?.prospectId).toBe(created.prospectId);
+  });
+
+  it('supports legacy prospects without business_market until updated', async () => {
+    const database = createDatabase();
+    const repository = new SqliteProspectRepository(database);
+    const service = new ProspectService(repository, { info: vi.fn() });
+
+    const legacy = await repository.create({
+      prospectId: 'prospect_legacy_1',
+      fullName: prospectInput.fullName,
+      businessName: prospectInput.businessName,
+      email: 'legacy@example.com',
+      phoneNumber: '+31600000000',
+      businessMarket: null,
+      industry: prospectInput.industry,
+      businessLocation: prospectInput.businessLocation,
+      companySize: prospectInput.companySize,
+      website: prospectInput.website ?? null,
+      biggestChallenge: prospectInput.biggestChallenge,
+      implementationTimeframe: prospectInput.implementationTimeframe,
+      currentStatus: 'new',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+
+    const updated = await service.upsert({
+      ...prospectInput,
+      email: legacy.email,
+      phoneNumber: '+31646275553',
+      businessMarket: 'NL',
+    });
+
+    expect(updated.prospectId).toBe(legacy.prospectId);
+    expect(updated.phoneNumber).toBe('+31646275553');
+    expect(updated.businessMarket).toBe('NL');
   });
 
   it('does not expose a delete path for permanent prospect data', () => {

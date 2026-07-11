@@ -1,8 +1,12 @@
+export type BusinessMarket = 'NL' | 'US' | 'OTHER';
+
 export interface StartDemoRequest {
   readonly full_name: string;
   readonly business_name: string;
   readonly email: string;
-  readonly phone_number: string;
+  readonly business_market: BusinessMarket;
+  readonly country_name?: string;
+  readonly phone_number?: string;
   readonly industry: string;
   readonly business_location: string;
   readonly company_size: string;

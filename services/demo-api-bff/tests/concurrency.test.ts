@@ -88,6 +88,7 @@ function buildStartRequest(email: string, phone: string): StartDemoRequest {
     full_name: 'Concurrent User',
     business_name: 'Concurrent Plumbing',
     email,
+    business_market: 'NL',
     phone_number: phone,
     industry: 'plumbing',
     business_location: 'Amsterdam',

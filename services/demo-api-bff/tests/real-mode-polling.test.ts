@@ -44,6 +44,7 @@ const validStartRequest: StartDemoRequest = {
   full_name: 'John Smith',
   business_name: "Joe's Plumbing",
   email: 'john@example.com',
+  business_market: 'NL',
   phone_number: '+31612345678',
   industry: 'plumbing',
   business_location: 'Amsterdam, Netherlands',

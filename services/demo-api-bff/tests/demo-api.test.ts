@@ -39,6 +39,7 @@ const validStartRequest: StartDemoRequest = {
   full_name: 'John Smith',
   business_name: "Joe's Plumbing",
   email: 'john@example.com',
+  business_market: 'NL',
   phone_number: '+31612345678',
   industry: 'plumbing',
   business_location: 'Amsterdam, Netherlands',
@@ -176,6 +177,127 @@ describe('demo-api-bff demo routes', () => {
     expect(body.industry_supported).toBe(false);
     expect(body.industry_notice?.title).toContain('plumbing');
     expect(body.status).toBe('started');
+  });
+
+  it('rejects unknown business market values', async () => {
+    const request = createJsonRequest('POST', '/api/demo/v1/start', {
+      ...validStartRequest,
+      business_market: 'UK',
+      experience_definition_id: 'expdef_plumbing_demo_v1',
+    });
+    const response = createMockResponse();
+
+    await handleRequest(request, response);
+
+    expect(response.statusCode).toBe(400);
+    const body = JSON.parse(response.chunks.join(''));
+    expect(body.error.code).toBe('VALIDATION_FAILED');
+  });
+
+  it('rejects supported markets without phone numbers', async () => {
+    const request = createJsonRequest('POST', '/api/demo/v1/start', {
+      ...validStartRequest,
+      phone_number: '',
+      experience_definition_id: 'expdef_plumbing_demo_v1',
+    });
+    const response = createMockResponse();
+
+    await handleRequest(request, response);
+
+    expect(response.statusCode).toBe(400);
+    expect(JSON.parse(response.chunks.join('')).error.code).toBe('VALIDATION_FAILED');
+  });
+
+  it('rejects OTHER market without country_name', async () => {
+    const request = createJsonRequest('POST', '/api/demo/v1/start', {
+      ...validStartRequest,
+      business_market: 'OTHER',
+      phone_number: undefined,
+      experience_definition_id: 'expdef_plumbing_demo_v1',
+    });
+    const response = createMockResponse();
+
+    await handleRequest(request, response);
+
+    expect(response.statusCode).toBe(400);
+    expect(JSON.parse(response.chunks.join('')).error.code).toBe('VALIDATION_FAILED');
+  });
+
+  it('ignores stale phone_number when validating OTHER market shape', async () => {
+    const request = createJsonRequest('POST', '/api/demo/v1/start', {
+      ...validStartRequest,
+      business_market: 'OTHER',
+      country_name: 'Canada',
+      phone_number: '+31646275553',
+      experience_definition_id: 'expdef_plumbing_demo_v1',
+    });
+    const response = createMockResponse();
+
+    await handleRequest(request, response);
+
+    expect(response.statusCode).not.toBe(400);
+    const body = JSON.parse(response.chunks.join(''));
+    expect(body.error?.code).not.toBe('VALIDATION_FAILED');
+  });
+
+  it('stores normalized E.164 phone and business_market for NL submissions', async () => {
+    const email = `e164-${randomUUID()}@example.com`;
+    const request = createJsonRequest('POST', '/api/demo/v1/start', {
+      ...validStartRequest,
+      email,
+      phone_number: '0646275553',
+      experience_definition_id: 'expdef_plumbing_demo_v1',
+    });
+    const response = createMockResponse();
+
+    await handleRequest(request, response);
+
+    expect(response.statusCode).toBe(200);
+
+    const database = createDatabase({ filePath: databasePath });
+    const prospectRepository = new SqliteProspectRepository(database);
+    const prospect = await prospectRepository.findByEmail(email);
+
+    expect(prospect?.phoneNumber).toBe('+31646275553');
+    expect(prospect?.businessMarket).toBe('NL');
+  });
+
+  it('updates matched prospects with the newest E.164 phone and business market', async () => {
+    const email = `match-${randomUUID()}@example.com`;
+    const database = createDatabase({ filePath: databasePath });
+    const prospectRepository = new SqliteProspectRepository(database);
+    const prospectService = new ProspectService(prospectRepository, { info: () => undefined });
+
+    await prospectService.upsert({
+      fullName: validStartRequest.full_name,
+      businessName: validStartRequest.business_name,
+      email,
+      phoneNumber: '+31600000000',
+      industry: validStartRequest.industry,
+      businessLocation: validStartRequest.business_location,
+      companySize: validStartRequest.company_size,
+      website: validStartRequest.website ?? null,
+      biggestChallenge: validStartRequest.biggest_challenge,
+      implementationTimeframe: validStartRequest.implementation_timeframe,
+      businessMarket: 'NL',
+    });
+
+    const request = createJsonRequest('POST', '/api/demo/v1/start', {
+      ...validStartRequest,
+      email,
+      business_market: 'US',
+      phone_number: '(415) 555-2671',
+      experience_definition_id: 'expdef_plumbing_demo_v1',
+    });
+    const response = createMockResponse();
+
+    await handleRequest(request, response);
+
+    expect(response.statusCode).toBe(200);
+
+    const updated = await prospectRepository.findByEmail(email);
+    expect(updated?.phoneNumber).toBe('+14155552671');
+    expect(updated?.businessMarket).toBe('US');
   });
 
   it('rejects invalid start demo requests', async () => {

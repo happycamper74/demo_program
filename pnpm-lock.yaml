@@ -179,7 +179,11 @@ importers:
 
   packages/sdk: {}
 
-  packages/shared-types: {}
+  packages/shared-types:
+    dependencies:
+      '@experience-platform/phone-normalization':
+        specifier: workspace:*
+        version: link:../phone-normalization
 
   packages/ui: {}
 
