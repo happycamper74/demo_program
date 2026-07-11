@@ -164,14 +164,19 @@ POST /api/demo/v1/start
 
 Purpose
 
-Creates or updates a Prospect, validates eligibility, creates an Experience Session, and returns demo instructions.
+Validates the qualification payload, then either:
 
-Request
+* **Supported markets (`NL`, `US`):** upserts a Prospect, validates eligibility, creates an Experience Session, mirrors to LeadBoard, and returns demo instructions.
+* **Unsupported market (`OTHER`):** creates a waitlist entry and returns a waitlisted confirmation. No Prospect upsert, Experience Session, experience token, LeadBoard mirror, or shared demo phone number is created.
 
+Request — Supported Market (NL)
+
+```json
 {
   "full_name": "John Smith",
   "business_name": "Joe's Plumbing",
   "email": "john@example.com",
+  "business_market": "NL",
   "phone_number": "+31612345678",
   "industry": "plumbing",
   "business_location": "Amsterdam, Netherlands",
@@ -187,9 +192,107 @@ Request
     "utm_campaign": "plumbing_launch"
   }
 }
+```
 
-Response — Supported Industry
+Request — Supported Market (US)
 
+```json
+{
+  "full_name": "John Smith",
+  "business_name": "Joe's Plumbing",
+  "email": "john@example.com",
+  "business_market": "US",
+  "phone_number": "(415) 555-2671",
+  "industry": "plumbing",
+  "business_location": "San Francisco, CA",
+  "company_size": "2-5",
+  "website": "https://joesplumbing.com",
+  "no_website": false,
+  "biggest_challenge": "never_miss_calls",
+  "implementation_timeframe": "within_3_months",
+  "experience_definition_id": "expdef_plumbing_demo_v1"
+}
+```
+
+Request — Unsupported Market (OTHER / waitlist)
+
+```json
+{
+  "full_name": "John Smith",
+  "business_name": "Joe's Plumbing",
+  "email": "john@example.com",
+  "business_market": "OTHER",
+  "country_name": "Canada",
+  "industry": "plumbing",
+  "business_location": "Toronto, Canada",
+  "company_size": "2-5",
+  "website": "https://joesplumbing.ca",
+  "no_website": false,
+  "biggest_challenge": "never_miss_calls",
+  "implementation_timeframe": "within_3_months",
+  "experience_definition_id": "expdef_plumbing_demo_v1"
+}
+```
+
+`phone_number` is optional for `OTHER`. If present in transport (for example, a stale browser payload), the backend ignores it and does not validate, normalize, or persist it.
+
+Request Fields
+
+| Field | Type | Required | Notes |
+|-------|------|----------|-------|
+| `full_name` | string | Always | |
+| `business_name` | string | Always | |
+| `email` | string | Always | |
+| `business_market` | `'NL' \| 'US' \| 'OTHER'` | Always | |
+| `country_name` | string | `OTHER` only | Trimmed, max 100 characters |
+| `phone_number` | string | `NL` and `US` only | Normalized to E.164 before persistence |
+| `industry` | string | Always | |
+| `business_location` | string | Always | Free text |
+| `company_size` | string | Always | |
+| `website` | string | Unless `no_website` is true | |
+| `no_website` | boolean | No | When true, `website` is not required |
+| `biggest_challenge` | string | Always | |
+| `implementation_timeframe` | string | Always | |
+| `experience_definition_id` | string | Always | |
+| `client_context` | object | No | Optional attribution metadata |
+| `challenge_completed` | boolean | No | Security / abuse guard input |
+| `company_website_url` | string | No | Honeypot field |
+
+Validation Rules
+
+1. All always-required fields must be non-empty strings.
+2. `website` is required unless `no_website` is `true`.
+3. Unknown `business_market` values (anything other than `NL`, `US`, or `OTHER`) return `400 VALIDATION_FAILED`. They are **not** treated as `OTHER`.
+4. When `business_market` is `NL` or `US`:
+   * `phone_number` is required.
+   * The phone must pass shared market-aware normalization and produce valid E.164 (`+31…` for `NL`, `+1…` for `US`).
+   * Invalid or missing phones return `400 VALIDATION_FAILED`.
+5. When `business_market` is `OTHER`:
+   * `country_name` is required (trimmed, max 100 characters).
+   * `phone_number` is not validated or persisted.
+
+Example validation error — unknown market (`400`)
+
+```json
+{
+  "error": {
+    "code": "VALIDATION_FAILED",
+    "message": "Invalid business market.",
+    "details": {
+      "business_market": "UK"
+    },
+    "request_id": "req_123"
+  }
+}
+```
+
+Response — Started Demo (`200 OK`)
+
+Returned for supported markets (`NL`, `US`) after a successful demo start.
+
+Supported industry example:
+
+```json
 {
   "status": "started",
   "prospect_id": "prospect_123",
@@ -200,6 +303,8 @@ Response — Supported Industry
   "shared_demo_phone_number": "+31201234567",
   "expected_call_duration_seconds": 180,
   "call_timeout_seconds": 900,
+  "experience_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "simulate_call_available": true,
   "instructions": {
     "title": "Your interactive demo is ready",
     "message": "Call the number below from the phone number you used to register.",
@@ -211,9 +316,11 @@ Response — Supported Industry
     ]
   }
 }
+```
 
-Response — Unsupported Industry
+Unsupported industry example (still `200 OK`; market remains supported):
 
+```json
 {
   "status": "started",
   "prospect_id": "prospect_123",
@@ -225,18 +332,60 @@ Response — Unsupported Industry
     "message": "You are welcome to try the interactive demo. The example call uses a plumbing scenario, but it demonstrates the AI call handling, transcript, lead creation, and automation workflow that could power future industry editions."
   },
   "session_state": "waiting_for_call",
-  "shared_demo_phone_number": "+31201234567"
+  "shared_demo_phone_number": "+31201234567",
+  "expected_call_duration_seconds": 180,
+  "call_timeout_seconds": 900,
+  "experience_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "simulate_call_available": true
 }
+```
 
-Errors
+Response — Waitlisted (`201 Created`)
 
+Returned for `business_market: 'OTHER'` on first successful waitlist submission.
+
+```json
+{
+  "status": "waitlisted",
+  "country_name": "Canada",
+  "message": "Thank you for your interest. We'll let you know when the demo is available in your market."
+}
+```
+
+Waitlisted responses **never** include:
+
+* `experience_session_id`
+* `experience_token`
+* `shared_demo_phone_number`
+* `prospect_id`
+* `session_state`
+
+Error — Duplicate Waitlist Email (`409 Conflict`)
+
+Returned when the normalized email already exists in `waitlist_entries`.
+
+```json
+{
+  "error": {
+    "code": "WAITLIST_EMAIL_EXISTS",
+    "message": "You're already on our waitlist.",
+    "request_id": "req_123"
+  }
+}
+```
+
+Other Start Demo Errors
+
+```json
 {
   "error": {
     "code": "DEMO_ALREADY_COMPLETED",
     "message": "You have already completed this interactive demo. The next step is to book a Discovery Session.",
-    "action": "book_discovery"
+    "action": "book_discovery",
+    "request_id": "req_123"
   }
 }
+```
 
 ⸻
 
@@ -845,6 +994,7 @@ All APIs shall return errors in the following structure.
 13. Standard Error Codes
 
 VALIDATION_FAILED
+WAITLIST_EMAIL_EXISTS
 SESSION_NOT_FOUND
 SESSION_EXPIRED
 SESSION_NOT_RECOVERABLE

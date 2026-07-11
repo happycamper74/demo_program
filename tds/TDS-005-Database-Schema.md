@@ -71,13 +71,15 @@ ExperienceEvent
 ▼
 AnalyticsEvent
 
+WaitlistEntry (standalone; no Prospect or Experience Session)
+
 ⸻
 
 4. Prospect
 
 Purpose
 
-Permanent marketing record.
+Permanent marketing record for supported-market demo submissions (`NL`, `US`).
 
 Primary Key
 
@@ -90,6 +92,7 @@ full_name
 business_name
 email
 phone_number
+business_market
 industry
 business_location
 company_size
@@ -100,12 +103,70 @@ current_status
 created_at
 updated_at
 
+Field Notes
+
+* `phone_number` — stored as normalized E.164 for supported-market submissions.
+* `business_market` — `'NL'` or `'US'` for new supported-market prospects. Nullable for legacy rows created before market-aware qualification.
+
 Indexes
 
 email
 phone_number
 industry
 business_name
+
+⸻
+
+4.1 Waitlist Entry
+
+Purpose
+
+Stores qualification submissions from unsupported markets (`OTHER`). Independent of `prospects` and `experience_sessions`.
+
+Primary Key
+
+id
+
+Table
+
+waitlist_entries
+
+Fields
+
+id
+created_at
+status
+full_name
+business_name
+email
+email_normalized
+country_name
+business_location
+industry
+company_size
+website
+no_website
+biggest_challenge
+implementation_timeframe
+client_context
+
+Field Notes
+
+* `status` — defaults to `waiting`.
+* `email_normalized` — lowercase normalized email used for deduplication.
+* `email_normalized` has a `UNIQUE` constraint.
+* There is **no** `phone_number` column. Phone data is not collected or persisted for waitlist submissions.
+* `website` is nullable when `no_website` is true.
+* `client_context` — optional JSON attribution metadata.
+
+Indexes
+
+email_normalized (`UNIQUE`)
+idx_waitlist_entries_email_normalized on `email_normalized`
+
+Duplicate Handling
+
+Duplicate waitlist submissions are prevented by the `email_normalized UNIQUE` constraint. A second insert with the same normalized email fails at the database layer and is surfaced by the API as `409 WAITLIST_EMAIL_EXISTS`. The existing row is unchanged.
 
 ⸻
 
@@ -380,6 +441,7 @@ Discovery Sessions
 Permanent
 
 * Prospect
+* Waitlist Entry
 * Discovery Session
 * Analytics Event
 * Experience Definition

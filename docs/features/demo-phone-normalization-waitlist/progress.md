@@ -7,4 +7,4 @@
 - [x] T005 Start-flow branching
 - [x] T006 Discriminated API responses
 - [x] T007 Waitlist confirmation UX
-- [ ] T008 Contract updates and final regression
+- [x] T008 Contract updates and final regression

@@ -87,12 +87,13 @@ async function seedActiveDefinition(databasePath: string): Promise<void> {
 }
 
 function buildStartRequest(overrides: Partial<StartDemoRequest> = {}): StartDemoRequest {
+  const uniqueSuffix = randomUUID().replace(/\D/g, '').slice(0, 4).padStart(4, '0');
   return {
     full_name: 'E2E User',
     business_name: 'E2E Plumbing',
     email: `e2e-${randomUUID()}@example.com`,
     business_market: 'NL',
-    phone_number: `+31612${Math.floor(Math.random() * 1_000_000)}`,
+    phone_number: `+3164627${uniqueSuffix}`,
     industry: 'plumbing',
     business_location: 'Amsterdam',
     company_size: '2-5',
